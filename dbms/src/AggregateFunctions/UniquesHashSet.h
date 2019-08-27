@@ -82,6 +82,8 @@ private:
     UInt8 size_degree;      /// The size of the table as a power of 2
     UInt8 skip_degree;      /// Skip elements not divisible by 2 ^ skip_degree
     bool has_zero;          /// The hash table contains an element with a hash value of 0.
+    UInt8 from_remote;
+    size_t r_size;
 
     HashValue * buf;
 
@@ -295,6 +297,8 @@ public:
 #ifdef UNIQUES_HASH_SET_COUNT_COLLISIONS
         collisions = 0;
 #endif
+        from_remote = 0;
+        r_size = 0;
     }
 
     UniquesHashSet(const UniquesHashSet & rhs)
@@ -302,6 +306,8 @@ public:
     {
         alloc(rhs.size_degree);
         memcpy(buf, rhs.buf, buf_size() * sizeof(buf[0]));
+        from_remote = rhs.from_remote;
+        r_size = rhs.r_size;
     }
 
     UniquesHashSet & operator= (const UniquesHashSet & rhs)
@@ -315,6 +321,8 @@ public:
         m_size = rhs.m_size;
         skip_degree = rhs.skip_degree;
         has_zero = rhs.has_zero;
+        from_remote = rhs.from_remote;
+        r_size = rhs.r_size;
 
         memcpy(buf, rhs.buf, buf_size() * sizeof(buf[0]));
 
@@ -338,6 +346,9 @@ public:
 
     size_t size() const
     {
+        if (from_remote)
+            return r_size;
+
         if (0 == skip_degree)
             return m_size;
 
@@ -361,6 +372,20 @@ public:
 
     void merge(const UniquesHashSet & rhs)
     {
+        if (from_remote || rhs.from_remote)
+        {
+            if (from_remote == 0)
+                r_size += size();
+
+            if (rhs.from_remote == 0)
+                r_size += rhs.size();
+            else
+                r_size += rhs.r_size;
+
+            from_remote = 1;
+            return;
+        }
+
         if (rhs.skip_degree > skip_degree)
         {
             skip_degree = rhs.skip_degree;
@@ -386,6 +411,9 @@ public:
 
     void write(DB::WriteBuffer & wb) const
     {
+        DB::writeVarUInt(size(), wb);
+
+        /*
         if (m_size > UNIQUES_HASH_MAX_SIZE)
             throw Poco::Exception("Cannot write UniquesHashSet: too large size_degree.");
 
@@ -401,10 +429,15 @@ public:
         for (size_t i = 0; i < buf_size(); ++i)
             if (buf[i])
                 DB::writeIntBinary(buf[i], wb);
+        */
     }
 
     void read(DB::ReadBuffer & rb)
     {
+        DB::readVarUInt(r_size, rb);
+        from_remote = 1;
+
+        /*
         has_zero = false;
 
         DB::readIntBinary(skip_degree, rb);
@@ -430,10 +463,13 @@ public:
             else
                 reinsertImpl(x);
         }
+        */
     }
 
     void readAndMerge(DB::ReadBuffer & rb)
     {
+        throw Poco::Exception("Not supported function readAndMerge.");
+
         UInt8 rhs_skip_degree = 0;
         DB::readIntBinary(rhs_skip_degree, rb);
 
