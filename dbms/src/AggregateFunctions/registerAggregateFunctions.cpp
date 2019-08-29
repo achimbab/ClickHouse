@@ -10,6 +10,7 @@ namespace DB
 void registerAggregateFunctionAvg(AggregateFunctionFactory &);
 void registerAggregateFunctionCount(AggregateFunctionFactory &);
 void registerAggregateFunctionGroupArray(AggregateFunctionFactory &);
+void registerAggregateFunctionGroupOrderedArray(AggregateFunctionFactory &);
 void registerAggregateFunctionGroupUniqArray(AggregateFunctionFactory &);
 void registerAggregateFunctionGroupArrayInsertAt(AggregateFunctionFactory &);
 void registerAggregateFunctionsQuantile(AggregateFunctionFactory &);
@@ -52,6 +53,7 @@ void registerAggregateFunctions()
         registerAggregateFunctionAvg(factory);
         registerAggregateFunctionCount(factory);
         registerAggregateFunctionGroupArray(factory);
+        registerAggregateFunctionGroupOrderedArray(factory);
         registerAggregateFunctionGroupUniqArray(factory);
         registerAggregateFunctionGroupArrayInsertAt(factory);
         registerAggregateFunctionsQuantile(factory);
