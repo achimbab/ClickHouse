@@ -431,6 +431,30 @@ struct ImplMetroHash64
     static constexpr bool use_int_hash_for_pods = true;
 };
 
+struct ImplBloomFilterHash
+{
+    static constexpr auto name = "bloomFilterHash64";
+    static constexpr UInt64 SEED = 3701;
+    static constexpr UInt64 SEED_GEN_A = 845897321;
+    static constexpr UInt64 SEED_GEN_B = 217728422;
+    using ReturnType = UInt64;
+
+    static auto combineHashes(UInt64 h1, UInt64 h2) { return h1 | h2; }
+    static auto apply(const char * s, const size_t len)
+    { 
+        ReturnType ret = 0;
+
+        size_t hash1 = CityHash_v1_0_2::CityHash64WithSeed(s, len, SEED);
+        size_t hash2 = CityHash_v1_0_2::CityHash64WithSeed(s, len, SEED_GEN_A * SEED + SEED_GEN_B);
+
+        ret = (1ULL << hash1 % 64);
+        ret |= (1ULL << (hash1 + hash2 + 1) % 64);
+
+        return ret;
+    }
+    static constexpr bool use_int_hash_for_pods = false;
+};
+
 
 #if USE_XXHASH
 
@@ -1103,6 +1127,7 @@ using FunctionMurmurHash3_64 = FunctionAnyHash<MurmurHash3Impl64>;
 using FunctionMurmurHash3_128 = FunctionStringHashFixedString<MurmurHash3Impl128>;
 using FunctionJavaHash = FunctionAnyHash<JavaHashImpl>;
 using FunctionHiveHash = FunctionAnyHash<HiveHashImpl>;
+using FunctionBloomFilterHash = FunctionAnyHash<ImplBloomFilterHash>;
 
 #if USE_XXHASH
     using FunctionXxHash32 = FunctionAnyHash<ImplXxHash32>;

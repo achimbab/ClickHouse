@@ -25,8 +25,7 @@ namespace ErrorCodes
 
 /// For has.
 struct IndexToOne
-{
-    using ResultType = UInt8;
+{ using ResultType = UInt8;
     static bool apply(size_t, ResultType & current) { current = 1; return false; }
 };
 
@@ -1020,5 +1019,258 @@ private:
                 + " of first argument of function " + getName(), ErrorCodes::ILLEGAL_COLUMN};
     }
 };
+
+template <typename IndexConv, typename Name>
+class FunctionArrayIndex2 : public IFunction
+{
+public:
+    static constexpr auto name = Name::name;
+    static FunctionPtr create(const Context &) { return std::make_shared<FunctionArrayIndex2>(); }
+
+private:
+    using ResultColumnType = ColumnVector<typename IndexConv::ResultType>;
+
+    bool executeString(Block & block, const ColumnNumbers & arguments, size_t result)
+    {
+        const ColumnArray * col_array = checkAndGetColumn<ColumnArray>(block.getByPosition(arguments[0]).column.get());
+
+        if (!col_array)
+            return false;
+
+        // Bloom filter
+        const ColumnVector<UInt64> * col_bf = checkAndGetColumn<ColumnVector<UInt64>>(block.getByPosition(arguments[2]).column.get());
+        if (!col_bf)
+            return false;
+
+        const auto key_data = block.getByPosition(arguments[3]).column->getUInt(0);
+
+        const auto item_arg = block.getByPosition(arguments[1]).column.get();
+        const auto item_arg_const = checkAndGetColumnConstStringOrFixedString(item_arg);
+        const ColumnString * item_string = checkAndGetColumn<ColumnString>(&item_arg_const->getDataColumn());
+
+        size_t size = col_bf->size();
+        auto col_res = ResultColumnType::create();
+        PaddedPODArray<typename IndexConv::ResultType> & res_vec = col_res->getData();
+        res_vec.resize(size);
+        
+        for (size_t i = 0; i < size; ++i)
+        {
+            if (key_data & col_bf->getUInt(i))
+            {
+                res_vec[i] = 0;
+
+                const ColumnString * col_nested = nullptr;
+
+                const ColumnNullable *nullable = checkAndGetColumn<ColumnNullable>(col_array->getData());
+                if (nullable)
+                {
+                    col_nested = checkAndGetColumn<ColumnString>(nullable->getNestedColumnPtr().get());
+                }
+                else
+                {
+                    col_nested = checkAndGetColumn<ColumnString>(&col_array->getData());
+                }
+
+                if (col_nested)
+                {
+                    const ColumnString::Chars & data = col_nested->getChars();
+                    const ColumnArray::Offsets & offsets = col_array->getOffsets();
+                    const ColumnString::Offsets & string_offsets = col_nested->getOffsets();
+
+                    ColumnArray::Offset current_offset = ((i == 0) ? 0 : offsets[i-1]);
+                    const auto array_size = offsets[i] - current_offset;
+
+                    for (size_t j = 0; j < array_size; ++j)
+                    {
+                        ColumnArray::Offset string_pos = current_offset == 0 && j == 0
+                            ? 0
+                            : string_offsets[current_offset + j - 1];
+
+                        ColumnArray::Offset string_size = string_offsets[current_offset + j] - string_pos - 1;
+
+                        if (memequalSmallAllowOverflow15(
+                              item_string->getChars().data(), item_string->getDataAt(0).size, 
+                              &data[string_pos], string_size))
+                        {
+                            res_vec[i] = j + 1;
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                res_vec[i] = 0;
+            }
+        }
+
+        block.getByPosition(result).column = std::move(col_res);
+        return true;
+    }
+
+
+public:
+    /// Get function name.
+    String getName() const override
+    {
+        return name;
+    }
+
+    bool useDefaultImplementationForNulls() const override { return false; }
+
+    size_t getNumberOfArguments() const override { return 4; }
+
+    DataTypePtr getReturnTypeImpl(const DataTypes & arguments) const override
+    {
+        const DataTypeArray * array_type = checkAndGetDataType<DataTypeArray>(arguments[0].get());
+        if (!array_type)
+            throw Exception("First argument for function " + getName() + " must be an array.",
+                ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT);
+
+        if (!arguments[1]->onlyNull())
+        {
+            if (!allowArrayIndex(array_type->getNestedType(), arguments[1]))
+                throw Exception("Types of array and 2nd argument of function "
+                    + getName() + " must be identical up to nullability or numeric types or Enum and numeric type. Passed: "
+                    + arguments[0]->getName() + " and " + arguments[1]->getName() + ".",
+                    ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT);
+        }
+
+        return std::make_shared<DataTypeNumber<typename IndexConv::ResultType>>();
+    }
+
+    void executeImpl(Block & block, const ColumnNumbers & arguments, size_t result, size_t /*input_rows_count*/) override
+    {
+        /// If one or both arguments passed to this function are nullable,
+        /// we create a new block that contains non-nullable arguments:
+        /// - if the 1st argument is a non-constant array of nullable values,
+        /// it is turned into a non-constant array of ordinary values + a null
+        /// byte map;
+        /// - if the 2nd argument is a nullable value, it is turned into an
+        /// ordinary value + a null byte map.
+        /// Note that since constant arrays have quite a specific structure
+        /// (they are vectors of Fields, which may represent the NULL value),
+        /// they do not require any preprocessing
+
+        const ColumnArray * col_array = checkAndGetColumn<ColumnArray>(block.getByPosition(arguments[0]).column.get());
+
+        const ColumnNullable * nullable = nullptr;
+        if (col_array)
+            nullable = checkAndGetColumn<ColumnNullable>(col_array->getData());
+
+        auto & arg_column = block.getByPosition(arguments[1]).column;
+
+        const ColumnNullable * arg_nullable = nullptr;
+        arg_nullable = checkAndGetColumn<ColumnNullable>(*arg_column);
+
+        if (!nullable && !arg_nullable)
+        {
+            /// Simple case: no nullable values passeded.
+            perform(block, arguments, result);
+        }
+        else
+        {
+            /// Template of the block on which we will actually apply the function.
+            /// Its elements will be filled later.
+            Block source_block =
+            {
+                /// 1st function argument (data)
+                {
+                },
+
+                /// 2nd function argument
+                {
+                },
+
+                /// 3nd function argument
+                {
+                },
+
+                /// 4nd function argument
+                {
+                },
+
+                /// 1st argument null map
+                {
+                },
+
+                /// 2nd argument null map
+                {
+                },
+
+                /// Function result.
+                {
+                    nullptr,
+                    block.getByPosition(result).type,
+                    ""
+                }
+            };
+
+            if (nullable)
+            {
+                const auto & nested_col = nullable->getNestedColumnPtr();
+
+                auto & data = source_block.getByPosition(0);
+                data.column = ColumnArray::create(nested_col, col_array->getOffsetsPtr());
+                data.type = std::make_shared<DataTypeArray>(
+                    static_cast<const DataTypeNullable &>(
+                        *static_cast<const DataTypeArray &>(*block.getByPosition(arguments[0]).type).getNestedType()).getNestedType());
+
+                auto & null_map = source_block.getByPosition(4);
+                null_map.column = nullable->getNullMapColumnPtr();
+                null_map.type = std::make_shared<DataTypeUInt8>();
+            }
+            else
+            {
+                auto & data = source_block.getByPosition(0);
+                data = block.getByPosition(arguments[0]);
+            }
+
+            if (arg_nullable)
+            {
+                auto & arg = source_block.getByPosition(1);
+                arg.column = arg_nullable->getNestedColumnPtr();
+                arg.type = static_cast<const DataTypeNullable &>(*block.getByPosition(arguments[1]).type).getNestedType();
+
+                auto & null_map = source_block.getByPosition(5);
+                null_map.column = arg_nullable->getNullMapColumnPtr();
+                null_map.type = std::make_shared<DataTypeUInt8>();
+            }
+            else
+            {
+                auto & arg = source_block.getByPosition(1);
+                arg = block.getByPosition(arguments[1]);
+            }
+
+            {
+                auto & data = source_block.getByPosition(2);
+                data = block.getByPosition(arguments[2]);
+            }
+
+            {
+                auto & data = source_block.getByPosition(3);
+                data = block.getByPosition(arguments[3]);
+            }
+
+            /// Now perform the function.
+            perform(source_block, {0, 1, 2, 3, 4, 5}, 6);
+
+            /// Move the result to its final position.
+            const ColumnWithTypeAndName & source_col = source_block.getByPosition(6);
+            ColumnWithTypeAndName & dest_col = block.getByPosition(result);
+            dest_col.column = std::move(source_col.column);
+        }
+    }
+
+private:
+    /// Perform function on the given block. Internal version.
+    void perform(Block & block, const ColumnNumbers & arguments, size_t result)
+    {
+        if (!executeString(block, arguments, result))
+            throw Exception{"Illegal column " + block.getByPosition(arguments[0]).column->getName()
+                + " of first argument of function " + getName(), ErrorCodes::ILLEGAL_COLUMN};
+    }
+};
+
 
 }

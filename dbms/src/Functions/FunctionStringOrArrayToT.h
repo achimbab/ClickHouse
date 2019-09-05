@@ -98,4 +98,47 @@ public:
     }
 };
 
+template <typename Impl, typename Name, typename ResultType>
+class FunctionStringOrStringArrayToT : public IFunction
+{
+public:
+    static constexpr auto name = Name::name;
+    static FunctionPtr create(const Context &)
+    {
+        return std::make_shared<FunctionStringOrStringArrayToT>();
+    }
+
+    String getName() const override
+    {
+        return name;
+    }
+
+    size_t getNumberOfArguments() const override
+    {
+        return 1;
+    }
+
+    DataTypePtr getReturnTypeImpl(const DataTypes & arguments) const override
+    {
+        if (!isStringOrFixedString(arguments[0])
+            && !isArray(arguments[0]))
+            throw Exception("Illegal type " + arguments[0]->getName() + " of argument of function " + getName(), ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT);
+
+        return std::make_shared<DataTypeNumber<ResultType>>();
+    }
+
+    bool useDefaultImplementationForConstants() const override { return true; }
+
+    void executeImpl(Block & block, const ColumnNumbers & arguments, size_t result, size_t /*input_rows_count*/) override
+    {
+        const ColumnPtr column = block.getByPosition(arguments[0]).column;
+				auto col_res = ColumnVector<ResultType>::create();
+				typename ColumnVector<ResultType>::Container & vec_res = col_res->getData();
+				vec_res.resize(column->size());
+
+				Impl::getResults(column, vec_res);
+				block.getByPosition(result).column = std::move(col_res);
+    }
+};
+
 }
