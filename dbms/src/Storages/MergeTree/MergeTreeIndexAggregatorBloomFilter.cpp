@@ -1,6 +1,8 @@
 #include <Storages/MergeTree/MergeTreeIndexAggregatorBloomFilter.h>
 
 #include <ext/bit_cast.h>
+#include <DataTypes/IDataType.h>
+#include <Columns/IColumn.h>
 #include <Columns/ColumnString.h>
 #include <Columns/ColumnsNumber.h>
 #include <Columns/ColumnFixedString.h>
@@ -49,13 +51,52 @@ void MergeTreeIndexAggregatorBloomFilter::update(const Block & block, size_t * p
     for (size_t index = 0; index < index_columns_name.size(); ++index)
     {
         const auto & column_and_type = block.getByName(index_columns_name[index]);
-        const auto & index_column = BloomFilterHash::hashWithColumn(column_and_type.type, column_and_type.column, *pos, max_read_rows);
 
-        granule_index_block.insert({std::move(index_column), std::make_shared<DataTypeUInt64>(), column_and_type.name});
+        const ColumnArray * array_col = typeid_cast<const ColumnArray *>(column_and_type.column.get());
+        if (array_col)
+        {
+            // Get nested type
+            const IColumn * nested_col = nullptr;
+            const IDataType * nested_type = nullptr;
+            if (const ColumnNullable *nullable = checkAndGetColumn<ColumnNullable>(array_col->getData()))
+            {
+                nested_col = nullable->getNestedColumnPtr().get();
+                nested_type = static_cast<const DataTypeNullable *>(column_and_type.type.get())->getNestedType().get();
+            }
+            else
+            {
+                nested_col = array_col->getDataPtr().get();
+                nested_type = static_cast<const DataTypeArray *>(column_and_type.type.get())->getNestedType().get();
+            }
+
+            if (!nested_col)
+                throw Exception("Not supported type " + array_col->getName(), ErrorCodes::ILLEGAL_COLUMN);
+
+            const ColumnString * nc = checkAndGetColumn<ColumnString>(nested_col);
+            if (!nc)
+                throw Exception("Not supported type " + array_col->getName(), ErrorCodes::ILLEGAL_COLUMN);
+
+            size_t num_elems = 0;
+            const ColumnArray::Offsets & offsets = array_col->getOffsets();
+            for (size_t i = 0; i < max_read_rows; ++i)
+            {
+                num_elems += offsets[i + (*pos)];
+            }
+
+            const auto & index_column = BloomFilterHash::hashWithColumn(nested_type, nested_col, *pos, num_elems);
+            granule_index_block.insert({std::move(index_column), std::make_shared<DataTypeUInt64>(), column_and_type.name});
+            *pos += num_elems;
+            total_rows += max_read_rows;
+        }
+        else
+        {
+            const auto & index_column = BloomFilterHash::hashWithColumn(column_and_type.type, column_and_type.column, *pos, max_read_rows);
+            granule_index_block.insert({std::move(index_column), std::make_shared<DataTypeUInt64>(), column_and_type.name});
+            *pos += max_read_rows;
+            total_rows += max_read_rows;
+        }
     }
 
-    *pos += max_read_rows;
-    total_rows += max_read_rows;
     granule_index_blocks.push_back(granule_index_block);
 }
 
