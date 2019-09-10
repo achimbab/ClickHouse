@@ -46,7 +46,7 @@ struct NameLength
 
 using FunctionLength = FunctionStringOrArrayToT<LengthImpl, NameLength, UInt64>;
 
-struct BloomFilterHashImpl
+struct BloomFilterHashImpl64
 {
     static constexpr auto is_fixed_to_constant = true;
 
@@ -135,27 +135,28 @@ struct BloomFilterHashImpl
 				UInt64 hash;
 
 				UInt64 h1 = CityHash_v1_0_2::CityHash64WithSeed(s, len, SEED);
-				//UInt64 h2 = CityHash_v1_0_2::CityHash64WithSeed(s, len, SEED_GEN_A * SEED + SEED_GEN_B);
+				UInt64 h2 = CityHash_v1_0_2::CityHash64WithSeed(s, len, SEED_GEN_A * SEED + SEED_GEN_B);
 
 				hash = (1ULL << h1 % 64);
-				//hash |= (1ULL << (h1 + h2 + 1) % 64);
+				hash |= (1ULL << (h1 + h2 + 1) % 64);
 
 				return hash;
 		}
 };
 
-struct NameBloomFilterHash
+struct NameBloomFilterHash64
 {
-    static constexpr auto name = "bloomFilterHash2";
+    static constexpr auto name = "bloomFilterHash64";
 };
 
-using FunctionBloomFilter = FunctionStringOrStringArrayToT<BloomFilterHashImpl, NameBloomFilterHash, UInt64>;
+using FunctionBloomFilter64 = FunctionStringOrStringArrayToT<BloomFilterHashImpl64, NameBloomFilterHash64, UInt64>;
+
 
 void registerFunctionLength(FunctionFactory & factory)
 {
     factory.registerFunction<FunctionLength>(FunctionFactory::CaseInsensitive);
     // TODO
-    factory.registerFunction<FunctionBloomFilter>(FunctionFactory::CaseInsensitive);
+    factory.registerFunction<FunctionBloomFilter64>(FunctionFactory::CaseInsensitive);
 }
 
 }

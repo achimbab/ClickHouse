@@ -1,12 +1,16 @@
 #pragma once
 
 #include <Columns/IColumn.h>
+#include <Columns/ColumnArray.h>
 #include <Columns/ColumnConst.h>
 #include <Columns/ColumnsNumber.h>
 #include <Columns/ColumnString.h>
 #include <Columns/ColumnFixedString.h>
+#include <Columns/ColumnNullable.h>
 #include <DataTypes/IDataType.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <DataTypes/DataTypeNullable.h>
+#include <DataTypes/DataTypeArray.h>
 #include <ext/bit_cast.h>
 #include <Common/HashTable/Hash.h>
 
@@ -53,6 +57,15 @@ struct BloomFilterHash
         return index_column;
     }
 
+    // TODO : deduplication
+    static ColumnPtr hashWithColumn(const IDataType * data_type, const IColumn * column, size_t pos, size_t limit)
+    {
+        auto index_column = ColumnUInt64::create(limit);
+        ColumnUInt64::Container & index_column_vec = index_column->getData();
+        getAnyTypeHash<true>(data_type, column, index_column_vec, pos);
+        return index_column;
+    }
+
     template <bool is_first>
     static void getAnyTypeHash(const IDataType * data_type, const IColumn * column, ColumnUInt64::Container & vec, size_t pos)
     {
@@ -74,6 +87,7 @@ struct BloomFilterHash
         else if (which.isFloat64()) getNumberTypeHash<Float64, is_first>(column, vec, pos);
         else if (which.isString()) getStringTypeHash<is_first>(column, vec, pos);
         else if (which.isFixedString()) getStringTypeHash<is_first>(column, vec, pos);
+        //else if (which.isArray()) getArrayTypeHash<is_first>(data_type, column, vec, pos);
         else throw Exception("Unexpected type " + data_type->getName() + " of bloom filter index.", ErrorCodes::LOGICAL_ERROR);
     }
 
@@ -155,6 +169,81 @@ struct BloomFilterHash
         else
             throw Exception("Illegal column type was passed to the bloom filter index.", ErrorCodes::ILLEGAL_COLUMN);
     }
+
+    /*
+    template <bool is_first>
+    static void getArrayTypeHash(const IDataType * data_type, const IColumn * column, ColumnUInt64::Container & vec, size_t pos)
+    {
+        // Get array
+        const ColumnArray * array_col = typeid_cast<const ColumnArray *>(column);
+        if (!array_col)
+            throw Exception("Type of " + data_type->getName() + " is not ColumnArray.", ErrorCodes::ILLEGAL_COLUMN);
+
+        // Get nested type
+        const IColumn * nested_col = nullptr;
+        const IDataType * nested_type = nullptr;
+        const ColumnNullable *nullable = checkAndGetColumn<ColumnNullable>(array_col->getData());
+        if (nullable)
+        {
+            nested_col = nullable->getNestedColumnPtr().get();
+            nested_type = static_cast<const DataTypeNullable *>(data_type)->getNestedType().get();
+        }
+        else
+        {
+            nested_col = array_col->getDataPtr().get();
+            nested_type = static_cast<const DataTypeArray *>(data_type)->getNestedType().get();
+        }
+
+        if (!nested_col)
+            throw Exception("Nested type of " + nested_type->getName() + " is null.", ErrorCodes::ILLEGAL_COLUMN);
+          
+        // Get hashes for all rows
+        // TODO: appropriate bit size
+        const ColumnArray::Offsets & offsets = array_col->getOffsets();
+        for (size_t i = 0; i < vec.size(); ++i)
+        {
+            size_t o = i + pos;
+            const ColumnArray::Offset current_offset = ((o == 0) ? 0 : offsets[o-1]);
+            const auto array_size = offsets[o] - current_offset;
+            auto hashes = ColumnUInt64::create(array_size);
+            ColumnUInt64::Container & hashes_vec = hashes->getData();
+
+            if (const ColumnString * nc = checkAndGetColumn<ColumnString>(nested_col))
+            {
+                const ColumnString::Offsets & string_offsets = nc->getOffsets();
+                const ColumnString::Chars & data = nc->getChars();
+                for (size_t j = 0; j < array_size; ++j)
+                {
+                    ColumnArray::Offset string_pos = current_offset == 0 && j == 0
+                        ? 0
+                        : string_offsets[current_offset + j - 1];
+
+                    ColumnArray::Offset string_size = string_offsets[current_offset + j] - string_pos - 1;
+
+                    UInt64 city_hash = CityHash_v1_0_2::CityHash64(
+                        reinterpret_cast<const char *>(&data[string_pos]), string_size);
+
+                    if constexpr (is_first)
+                        hashes_vec[j] = city_hash;
+                    else
+                        hashes_vec[j] = CityHash_v1_0_2::Hash128to64(CityHash_v1_0_2::uint128(hashes_vec[j], city_hash));
+                }
+            }
+            else
+            {
+                throw Exception("Nested type of " + nested_type->getName() + " is not supported.", ErrorCodes::ILLEGAL_COLUMN);
+            }
+
+            UInt64 total_hash = 0;
+            for (size_t j = 0; j < array_size; ++j)
+            {
+                total_hash |= hashes_vec[j];
+            }
+
+            vec[i] = total_hash;
+        }
+    }
+    */
 
     static std::pair<size_t, size_t> calculationBestPractices(double max_conflict_probability)
     {

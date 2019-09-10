@@ -11,6 +11,7 @@
 #include <Columns/ColumnNullable.h>
 #include <Common/FieldVisitors.h>
 #include <Common/memcmpSmall.h>
+#include <Interpreters/BloomFilterHash.h>
 
 
 namespace DB
@@ -1055,7 +1056,7 @@ private:
         
         for (size_t i = 0; i < size; ++i)
         {
-            if (key_data & col_bf->getUInt(i))
+            if ((key_data & col_bf->getUInt(i)) == key_data)
             {
                 res_vec[i] = 0;
 
@@ -1152,114 +1153,7 @@ public:
         /// (they are vectors of Fields, which may represent the NULL value),
         /// they do not require any preprocessing
 
-        const ColumnArray * col_array = checkAndGetColumn<ColumnArray>(block.getByPosition(arguments[0]).column.get());
-
-        const ColumnNullable * nullable = nullptr;
-        if (col_array)
-            nullable = checkAndGetColumn<ColumnNullable>(col_array->getData());
-
-        auto & arg_column = block.getByPosition(arguments[1]).column;
-
-        const ColumnNullable * arg_nullable = nullptr;
-        arg_nullable = checkAndGetColumn<ColumnNullable>(*arg_column);
-
-        if (!nullable && !arg_nullable)
-        {
-            /// Simple case: no nullable values passeded.
-            perform(block, arguments, result);
-        }
-        else
-        {
-            /// Template of the block on which we will actually apply the function.
-            /// Its elements will be filled later.
-            Block source_block =
-            {
-                /// 1st function argument (data)
-                {
-                },
-
-                /// 2nd function argument
-                {
-                },
-
-                /// 3nd function argument
-                {
-                },
-
-                /// 4nd function argument
-                {
-                },
-
-                /// 1st argument null map
-                {
-                },
-
-                /// 2nd argument null map
-                {
-                },
-
-                /// Function result.
-                {
-                    nullptr,
-                    block.getByPosition(result).type,
-                    ""
-                }
-            };
-
-            if (nullable)
-            {
-                const auto & nested_col = nullable->getNestedColumnPtr();
-
-                auto & data = source_block.getByPosition(0);
-                data.column = ColumnArray::create(nested_col, col_array->getOffsetsPtr());
-                data.type = std::make_shared<DataTypeArray>(
-                    static_cast<const DataTypeNullable &>(
-                        *static_cast<const DataTypeArray &>(*block.getByPosition(arguments[0]).type).getNestedType()).getNestedType());
-
-                auto & null_map = source_block.getByPosition(4);
-                null_map.column = nullable->getNullMapColumnPtr();
-                null_map.type = std::make_shared<DataTypeUInt8>();
-            }
-            else
-            {
-                auto & data = source_block.getByPosition(0);
-                data = block.getByPosition(arguments[0]);
-            }
-
-            if (arg_nullable)
-            {
-                auto & arg = source_block.getByPosition(1);
-                arg.column = arg_nullable->getNestedColumnPtr();
-                arg.type = static_cast<const DataTypeNullable &>(*block.getByPosition(arguments[1]).type).getNestedType();
-
-                auto & null_map = source_block.getByPosition(5);
-                null_map.column = arg_nullable->getNullMapColumnPtr();
-                null_map.type = std::make_shared<DataTypeUInt8>();
-            }
-            else
-            {
-                auto & arg = source_block.getByPosition(1);
-                arg = block.getByPosition(arguments[1]);
-            }
-
-            {
-                auto & data = source_block.getByPosition(2);
-                data = block.getByPosition(arguments[2]);
-            }
-
-            {
-                auto & data = source_block.getByPosition(3);
-                data = block.getByPosition(arguments[3]);
-            }
-
-            /// Now perform the function.
-            perform(source_block, {0, 1, 2, 3, 4, 5}, 6);
-
-            /// Move the result to its final position.
-            const ColumnWithTypeAndName & source_col = source_block.getByPosition(6);
-            ColumnWithTypeAndName & dest_col = block.getByPosition(result);
-            dest_col.column = std::move(source_col.column);
-        }
+        perform(block, arguments, result);
     }
 
 private:
@@ -1269,6 +1163,48 @@ private:
         if (!executeString(block, arguments, result))
             throw Exception{"Illegal column " + block.getByPosition(arguments[0]).column->getName()
                 + " of first argument of function " + getName(), ErrorCodes::ILLEGAL_COLUMN};
+    }
+};
+
+template <typename IndexConv, typename Name>
+class FunctionArrayIndex3 : public IFunction
+{
+public:
+    static constexpr auto name = Name::name;
+    static FunctionPtr create(const Context &) { return std::make_shared<FunctionArrayIndex3>(); }
+
+private:
+    using ResultColumnType = ColumnVector<typename IndexConv::ResultType>;
+
+public:
+    /// Get function name.
+    String getName() const override
+    {
+        return name;
+    }
+
+    bool useDefaultImplementationForNulls() const override { return false; }
+
+    size_t getNumberOfArguments() const override { return 1; }
+
+    DataTypePtr getReturnTypeImpl(const DataTypes & /*arguments*/) const override
+    {
+        return std::make_shared<DataTypeNumber<typename IndexConv::ResultType>>();
+    }
+
+    void executeImpl(Block & block, const ColumnNumbers & arguments, size_t result, size_t input_rows_count) override
+    {
+        auto col_res = ResultColumnType::create();
+        PaddedPODArray<typename IndexConv::ResultType> & res_vec = col_res->getData();
+        res_vec.resize(input_rows_count);
+
+        BloomFilterHash::getAnyTypeHash<true>(
+            block.getByPosition(arguments[0]).type.get(),
+            block.getByPosition(arguments[0]).column.get(), 
+            res_vec,
+            0);
+
+        block.getByPosition(result).column = std::move(col_res);
     }
 };
 

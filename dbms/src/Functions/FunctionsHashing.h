@@ -433,7 +433,7 @@ struct ImplMetroHash64
 
 struct ImplBloomFilterHash
 {
-    static constexpr auto name = "bloomFilterHash64";
+    static constexpr auto name = "bloomFilterHash";
     static constexpr UInt64 SEED = 3701;
     static constexpr UInt64 SEED_GEN_A = 845897321;
     static constexpr UInt64 SEED_GEN_B = 217728422;
