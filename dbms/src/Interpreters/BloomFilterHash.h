@@ -45,6 +45,26 @@ struct BloomFilterHash
             const auto & value = field.safeGet<String>();
             return ColumnConst::create(ColumnUInt64::create(1, CityHash_v1_0_2::CityHash64(value.data(), value.size())), 1);
         }
+        else if (which.isArray())
+        {
+            const auto & value = field.safeGet<String>();
+            return ColumnConst::create(ColumnUInt64::create(1, CityHash_v1_0_2::CityHash64(value.data(), value.size())), 1);
+            /*
+            const auto & ary = field.safeGet<Array>();
+            UInt64 hash = 0L;
+
+            auto column = ColumnUInt64::create(ary.size());
+
+            for (size_t i = 0; i < ary.size(); ++i)
+            {
+                const auto & value = safeGet<const String &>(ary[i]);
+                hash |= CityHash_v1_0_2::CityHash64(value.data(), value.size());
+                column->insertData(reinterpret_cast<const char *>(&hash), 0);
+            }
+
+            return column;
+            */
+        }
         else
             throw Exception("Unexpected type " + data_type->getName() + " of bloom filter index.", ErrorCodes::LOGICAL_ERROR);
     }

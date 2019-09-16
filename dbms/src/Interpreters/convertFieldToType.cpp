@@ -300,6 +300,11 @@ Field convertFieldToType(const Field & from_value, const IDataType & to_type, co
             return from_value;
         return convertFieldToTypeImpl(from_value, nested_type, from_type_hint);
     }
+    else if (auto * array_type = typeid_cast<const DataTypeArray *>(&to_type))
+    {
+        const IDataType & nested_type = *array_type->getNestedType();
+        return convertFieldToTypeImpl(from_value, nested_type, from_type_hint);
+    }
     else
         return convertFieldToTypeImpl(from_value, to_type, from_type_hint);
 }

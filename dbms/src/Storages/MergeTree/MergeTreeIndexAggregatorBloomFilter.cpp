@@ -51,10 +51,12 @@ void MergeTreeIndexAggregatorBloomFilter::update(const Block & block, size_t * p
     for (size_t index = 0; index < index_columns_name.size(); ++index)
     {
         const auto & column_and_type = block.getByName(index_columns_name[index]);
+        WhichDataType which(column_and_type.type);
 
-        const ColumnArray * array_col = typeid_cast<const ColumnArray *>(column_and_type.column.get());
-        if (array_col)
+        if (which.isArray())
         {
+            const ColumnArray * array_col = typeid_cast<const ColumnArray *>(column_and_type.column.get());
+
             // Get nested type
             const IColumn * nested_col = nullptr;
             const IDataType * nested_type = nullptr;
@@ -76,16 +78,10 @@ void MergeTreeIndexAggregatorBloomFilter::update(const Block & block, size_t * p
             if (!nc)
                 throw Exception("Not supported type " + array_col->getName(), ErrorCodes::ILLEGAL_COLUMN);
 
-            size_t num_elems = 0;
-            const ColumnArray::Offsets & offsets = array_col->getOffsets();
-            for (size_t i = 0; i < max_read_rows; ++i)
-            {
-                num_elems += offsets[i + (*pos)];
-            }
-
-            const auto & index_column = BloomFilterHash::hashWithColumn(nested_type, nested_col, *pos, num_elems);
+            max_read_rows = std::min(nested_col->size() - *pos, limit);
+            const auto & index_column = BloomFilterHash::hashWithColumn(nested_type, nested_col, *pos, max_read_rows);
             granule_index_block.insert({std::move(index_column), std::make_shared<DataTypeUInt64>(), column_and_type.name});
-            *pos += num_elems;
+            *pos += max_read_rows;
             total_rows += max_read_rows;
         }
         else

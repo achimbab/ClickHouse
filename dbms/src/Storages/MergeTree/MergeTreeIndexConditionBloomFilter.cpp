@@ -96,6 +96,7 @@ bool MergeTreeIndexConditionBloomFilter::alwaysUnknownOrTrue() const
         }
         else if (element.function == RPNElement::FUNCTION_EQUALS
                  || element.function == RPNElement::FUNCTION_NOT_EQUALS
+                 || element.function == RPNElement::FUNCTION_HAS
                  || element.function == RPNElement::FUNCTION_IN
                  || element.function == RPNElement::FUNCTION_NOT_IN
                  || element.function == RPNElement::ALWAYS_FALSE)
@@ -141,7 +142,8 @@ bool MergeTreeIndexConditionBloomFilter::mayBeTrueOnGranule(const MergeTreeIndex
         else if (element.function == RPNElement::FUNCTION_IN
             || element.function == RPNElement::FUNCTION_NOT_IN
             || element.function == RPNElement::FUNCTION_EQUALS
-            || element.function == RPNElement::FUNCTION_NOT_EQUALS)
+            || element.function == RPNElement::FUNCTION_NOT_EQUALS
+            || element.function == RPNElement::FUNCTION_HAS)
         {
             bool match_rows = true;
             const auto & predicate = element.predicate;
@@ -222,7 +224,7 @@ bool MergeTreeIndexConditionBloomFilter::traverseAtomAST(const ASTPtr & node, Bl
             if (const auto & prepared_set = getPreparedSet(arguments[1]))
                 return traverseASTIn(function->name, arguments[0], prepared_set, out);
         }
-        else if (function->name == "equals" || function->name  == "notEquals")
+        else if (function->name == "equals" || function->name  == "notEquals" || function->name == "has")
         {
             Field const_value;
             DataTypePtr const_type;
@@ -299,7 +301,19 @@ bool MergeTreeIndexConditionBloomFilter::traverseASTEquals(
         const DataTypePtr & index_type = header.getByPosition(position).type;
         Field converted_field = convertFieldToType(value_field, *index_type, &*value_type);
         out.predicate.emplace_back(std::make_pair(position, BloomFilterHash::hashWithField(&*index_type, converted_field)));
-        out.function = function_name == "equals" ? RPNElement::FUNCTION_EQUALS : RPNElement::FUNCTION_NOT_EQUALS;
+
+        if (function_name == "equals")
+        {
+            out.function = RPNElement::FUNCTION_EQUALS;
+        }
+        else if (function_name == "has")
+        {
+            out.function = RPNElement::FUNCTION_HAS;
+        }
+        else
+        {
+            out.function = RPNElement::FUNCTION_NOT_EQUALS;
+        }
         return true;
     }
 
