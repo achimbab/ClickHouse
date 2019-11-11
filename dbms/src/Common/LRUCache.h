@@ -50,7 +50,7 @@ public:
     {
         std::lock_guard lock(mutex);
 
-        auto res = getImpl(key, lock);
+        auto res = getImpl(key);
         if (res)
             ++hits;
         else
@@ -81,7 +81,7 @@ public:
         {
             std::lock_guard cache_lock(mutex);
 
-            auto val = getImpl(key, cache_lock);
+            auto val = getImpl(key);
             if (val)
             {
                 ++hits;
@@ -184,6 +184,51 @@ protected:
     Cells cells;
 
     mutable std::mutex mutex;
+
+    MappedPtr getImpl(const Key & key)
+    {
+        auto it = cells.find(key);
+        if (it == cells.end())
+        {
+            return MappedPtr();
+        }
+
+        Cell & cell = it->second;
+        updateCellTimestamp(cell);
+
+        /// Move the key to the end of the queue. The iterator remains valid.
+        queue.splice(queue.end(), queue, cell.queue_iterator);
+
+        return cell.value;
+    }
+
+    void setImpl(const Key & key, const MappedPtr & mapped, [[maybe_unused]] std::lock_guard<std::mutex> & cache_lock)
+    {
+        auto res = cells.emplace(std::piecewise_construct,
+            std::forward_as_tuple(key),
+            std::forward_as_tuple());
+
+        Cell & cell = res.first->second;
+        bool inserted = res.second;
+
+        if (inserted)
+        {
+            cell.queue_iterator = queue.insert(queue.end(), key);
+        }
+        else
+        {
+            current_size -= cell.size;
+            queue.splice(queue.end(), queue, cell.queue_iterator);
+        }
+
+        cell.value = mapped;
+        cell.size = cell.value ? weight_function(*cell.value) : 0;
+        current_size += cell.size;
+        updateCellTimestamp(cell);
+
+        removeOverflow(cell.timestamp);
+    }
+
 private:
 
     /// Represents pending insertion attempt.
@@ -263,51 +308,6 @@ private:
     std::atomic<size_t> misses {0};
 
     WeightFunction weight_function;
-
-    MappedPtr getImpl(const Key & key, [[maybe_unused]] std::lock_guard<std::mutex> & cache_lock)
-    {
-        auto it = cells.find(key);
-        if (it == cells.end())
-        {
-            return MappedPtr();
-        }
-
-        Cell & cell = it->second;
-        updateCellTimestamp(cell);
-
-        /// Move the key to the end of the queue. The iterator remains valid.
-        queue.splice(queue.end(), queue, cell.queue_iterator);
-
-        return cell.value;
-    }
-
-    void setImpl(const Key & key, const MappedPtr & mapped, [[maybe_unused]] std::lock_guard<std::mutex> & cache_lock)
-    {
-        auto res = cells.emplace(std::piecewise_construct,
-            std::forward_as_tuple(key),
-            std::forward_as_tuple());
-
-        Cell & cell = res.first->second;
-        bool inserted = res.second;
-
-        if (inserted)
-        {
-            cell.queue_iterator = queue.insert(queue.end(), key);
-        }
-        else
-        {
-            current_size -= cell.size;
-            queue.splice(queue.end(), queue, cell.queue_iterator);
-        }
-
-        cell.value = mapped;
-        cell.size = cell.value ? weight_function(*cell.value) : 0;
-        current_size += cell.size;
-        updateCellTimestamp(cell);
-
-        removeOverflow(cell.timestamp);
-    }
-
     void updateCellTimestamp(Cell & cell)
     {
         if (expiration_delay != Delay::zero())

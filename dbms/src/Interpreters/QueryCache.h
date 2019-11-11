@@ -2,11 +2,13 @@
 
 #include <Core/Block.h>
 #include <Core/QueryProcessingStage.h>
+#include <Common/LRUCache.h>
 
 #include <set>
 #include <mutex>
 #include <vector>
 #include <condition_variable>
+#include <iterator>
 
 namespace DB
 {
@@ -14,7 +16,7 @@ namespace DB
 class Set;
 using SetPtr = std::shared_ptr<Set>;
 
-// TODO: Refactor
+// TODO: Refactor struct QueryCacheItem
 struct QueryCacheItem
 {
     QueryCacheItem() : shard_num(0), query(""), processed_stage(QueryProcessingStage::FetchColumns)
@@ -69,5 +71,118 @@ extern std::set<QueryCacheItem> g_cache;
 extern std::set<QueryCacheItem> g_resv;
 extern std::mutex g_cache_lock;
 extern std::condition_variable g_cache_cv;
+
+struct QueryResult
+{
+    BlocksPtrs blocks;
+    SetPtr set;
+
+    void add(const std::shared_ptr<QueryResult> & res)
+    {
+        assert(set == nullptr);
+        blocks->insert(blocks->end(), 
+            res->blocks->begin(), 
+            res->blocks->end());
+    }
+
+    size_t operator()(const QueryResult & x) const
+    {
+        return x.blocks->size() || x.set;
+    }
+};
+
+using QueryResultPtr = std::shared_ptr<QueryResult>;
+
+class QueryCache : public LRUCache<String, QueryResult>
+{
+private:
+    using Base = LRUCache<String, QueryResult>;
+    using Reserved = std::set<Key>;
+
+public:
+    QueryCache(size_t max_size_in_bytes, const Delay & expiration_delay_ = Delay::zero())
+        : Base(max_size_in_bytes, expiration_delay_) {}
+
+    bool reserveOrGet(const Key & key, MappedPtr & mapped)
+    {
+        std::lock_guard lock(mutex); 
+
+        if (auto v = getImpl(key))
+        {
+            mapped = v;
+            return false;
+        }
+
+        if (resv.find(key) == resv.end()) 
+        {
+            LOG_INFO(&Logger::get("QueryCache"), "CACHE reserved " << key);
+            resv.insert(key);
+            return true; 
+        }
+
+        return false;
+    }
+
+    MappedPtr waitAndGet(const Key & key)
+    {
+        std::unique_lock<std::mutex> lock(mutex); 
+        MappedPtr ret = nullptr;
+
+        cv.wait(lock,
+                [&] {
+                    auto v = getImpl(key);
+                    if (v)
+                    {
+                        ret = v;
+                        return true; 
+                    }
+                    else 
+                    {
+                        return false;
+                    }
+                }
+            ); 
+
+        LOG_INFO(&Logger::get("QueryCache"), "CACHE waitAndGet " << key);
+
+        return ret;
+    }
+
+    void set(const Key & key, const MappedPtr & mapped)
+    {
+        std::lock_guard lock(mutex);
+
+        setImpl(key, mapped, lock);
+        
+        clearReservation(key);
+    }
+
+    void add(const Key & key, const MappedPtr & mapped)
+    {
+        std::lock_guard lock(mutex);
+        
+        if (auto v = getImpl(key))
+            v->add(mapped);
+        else
+            setImpl(key, mapped, lock);
+
+        clearReservation(key);
+    }
+
+private:
+    void clearReservation(const Key & key)
+    {
+        if (resv.find(key) != resv.end()) 
+        {
+            resv.erase(key);
+        }
+        cv.notify_all();
+    }
+
+    Reserved resv;
+    std::condition_variable cv;
+};
+
+using QueryCachePtr = std::shared_ptr<QueryCache>;
 
 }
