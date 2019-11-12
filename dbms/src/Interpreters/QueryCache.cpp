@@ -1,4 +1,5 @@
 #include <Interpreters/QueryCache.h>
+#include <Interpreters/Set.h>
 #include <Parsers/queryToString.h>
 
 #include <iostream>
@@ -86,6 +87,37 @@ void addQueryCache(UInt32 shard_num, String query, QueryProcessingStage::Enum pr
     std::lock_guard<std::mutex> guard(g_cache_lock);
     std::cout << "    CACHE set added for shard " << shard_num << " stage: " << QueryProcessingStage::toString(processed_stage) << " \"" << query << "\"\n";
     g_cache.insert(QueryCacheItem(shard_num, query, processed_stage, set));
+}
+
+QueryResult::QueryResult() :
+    blocks(std::make_shared<Blocks>())
+{
+}
+
+void QueryResult::add(const std::shared_ptr<QueryResult> & res)
+{
+    assert(set == nullptr);
+    blocks->insert(blocks->end(), 
+        res->blocks->begin(), 
+        res->blocks->end());
+}
+
+size_t QueryResult::operator()(const QueryResult & x) const
+{
+    return x.blocks->size() || x.set;
+}
+
+size_t QueryResult::size() const
+{
+    size_t bytes = 0;
+
+    for (auto & block : *blocks)
+        bytes += block.bytes();
+
+    if (set)
+        bytes += set->getTotalByteCount();
+
+    return bytes;
 }
 
 }

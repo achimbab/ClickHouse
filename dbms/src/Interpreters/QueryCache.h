@@ -74,29 +74,32 @@ extern std::condition_variable g_cache_cv;
 
 struct QueryResult
 {
-    BlocksPtrs blocks;
+    BlocksPtr blocks;
     SetPtr set;
 
-    void add(const std::shared_ptr<QueryResult> & res)
-    {
-        assert(set == nullptr);
-        blocks->insert(blocks->end(), 
-            res->blocks->begin(), 
-            res->blocks->end());
-    }
+    QueryResult();
 
-    size_t operator()(const QueryResult & x) const
-    {
-        return x.blocks->size() || x.set;
-    }
+    void add(const std::shared_ptr<QueryResult> & res);
+
+    size_t operator()(const QueryResult & x) const;
+
+    size_t size() const;
 };
 
 using QueryResultPtr = std::shared_ptr<QueryResult>;
 
-class QueryCache : public LRUCache<String, QueryResult>
+struct QueryResultWeightFunction
+{
+    size_t operator()(const QueryResult & result) const
+    {
+        return result.size();
+    }
+};
+
+class QueryCache : public LRUCache<String, QueryResult, std::hash<String>, QueryResultWeightFunction>
 {
 private:
-    using Base = LRUCache<String, QueryResult>;
+    using Base = LRUCache<String, QueryResult, std::hash<String>, QueryResultWeightFunction>;
     using Reserved = std::set<Key>;
 
 public:
