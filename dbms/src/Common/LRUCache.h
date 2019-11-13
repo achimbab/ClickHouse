@@ -129,12 +129,6 @@ public:
         return std::make_pair(token->value, result);
     }
 
-    void evict(const Timestamp & last_timestamp)
-	{
-        std::lock_guard lock(mutex);
-		evictImpl(last_timestamp);
-	}
-
     void getStats(size_t & out_hits, size_t & out_misses) const
     {
         std::lock_guard lock(mutex);
@@ -234,43 +228,6 @@ protected:
 
         removeOverflow(cell.timestamp);
     }
-
-    void evictImpl(const Timestamp & last_timestamp)
-    {
-        size_t current_weight_lost = 0;
-        size_t queue_size = cells.size();
-        while (queue_size > 0)
-        {
-            const Key & key = queue.front();
-
-            auto it = cells.find(key);
-            if (it == cells.end())
-            {
-                LOG_ERROR(&Logger::get("LRUCache"), "LRUCache became inconsistent. There must be a bug in it.");
-                abort();
-            }
-
-            const auto & cell = it->second;
-            if (!cell.expired(last_timestamp, expiration_delay) && current_size <= max_size)
-                break;
-
-            current_size -= cell.size;
-            current_weight_lost += cell.size;
-
-            cells.erase(it);
-            queue.pop_front();
-            --queue_size;
-        }
-
-        onRemoveOverflowWeightLoss(current_weight_lost);
-
-        if (current_size > (1ull << 63))
-        {
-            LOG_ERROR(&Logger::get("LRUCache"), "LRUCache became inconsistent. There must be a bug in it.");
-            abort();
-        }
-    }
-
 private:
 
     /// Represents pending insertion attempt.
@@ -350,6 +307,7 @@ private:
     std::atomic<size_t> misses {0};
 
     WeightFunction weight_function;
+
     void updateCellTimestamp(Cell & cell)
     {
         if (expiration_delay != Delay::zero())
@@ -392,7 +350,7 @@ private:
         }
     }
 
-    /// Override this method if you want to track how much weight was lost in removeOverflowImpl method.
+    /// Override this method if you want to track how much weight was lost in removeOverflow method.
     virtual void onRemoveOverflowWeightLoss(size_t /*weight_loss*/) {}
 };
 

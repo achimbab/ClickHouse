@@ -16,68 +16,14 @@ namespace DB
 class Set;
 using SetPtr = std::shared_ptr<Set>;
 
-// TODO: Refactor struct QueryCacheItem
-struct QueryCacheItem
-{
-    QueryCacheItem() : shard_num(0), query(""), processed_stage(QueryProcessingStage::FetchColumns)
-    {
-    }
-
-    QueryCacheItem(UInt32 shard_num_, String query_, QueryProcessingStage::Enum processed_stage_) :
-        shard_num(shard_num_), query(query_), processed_stage(processed_stage_)
-    {
-    }
-
-    QueryCacheItem(UInt32 shard_num_, String query_, QueryProcessingStage::Enum processed_stage_, Block block_) :
-        shard_num(shard_num_), query(query_), processed_stage(processed_stage_)
-    {
-        blocks.push_back(block_);
-    }
-
-    QueryCacheItem(UInt32 shard_num_, String query_, QueryProcessingStage::Enum processed_stage_, SetPtr set_) :
-        shard_num(shard_num_), query(query_), processed_stage(processed_stage_), set(set_)
-    {
-    }
-
-    bool operator < (const QueryCacheItem & rhs) const
-    {
-        if (query == rhs.query)
-            if (processed_stage == rhs.processed_stage)
-                return shard_num < rhs.shard_num;
-            else
-                return processed_stage < rhs.processed_stage;
-        else 
-            return query < rhs.query;
-    }
-
-    std::vector<Block> getBlocks() const { return blocks; }
-    SetPtr getSet() const { return set; }
-
-    UInt32 shard_num;
-    String query;
-    QueryProcessingStage::Enum processed_stage;
-
-    mutable std::vector<Block> blocks;
-    mutable SetPtr set;
-};
-
-bool getQueryCache(UInt32 shard_num, String query, QueryProcessingStage::Enum processed_stage, QueryCacheItem & cache);
-bool reserveQueryCache(UInt32 shard_num, String query, QueryProcessingStage::Enum processed_stage);
-void waitAndGetQueryCache(UInt32 shard_num, String query, QueryProcessingStage::Enum processed_stage, QueryCacheItem & cache);
-void addQueryCache(UInt32 shard_num, String query, QueryProcessingStage::Enum processed_stage, Block block);
-void addQueryCache(UInt32 shard_num, String query, QueryProcessingStage::Enum processed_stage, SetPtr set);
-
-extern std::set<QueryCacheItem> g_cache;
-extern std::set<QueryCacheItem> g_resv;
-extern std::mutex g_cache_lock;
-extern std::condition_variable g_cache_cv;
-
 struct QueryResult
 {
     BlocksPtr blocks;
     SetPtr set;
 
     QueryResult();
+    QueryResult(BlocksPtr blocks_) : blocks(blocks_) {}
+    QueryResult(SetPtr set_) : blocks(std::make_shared<Blocks>()), set(set_) {}
 
     void add(const std::shared_ptr<QueryResult> & res);
 
@@ -108,7 +54,7 @@ public:
 
     bool reserveOrGet(const Key & key, MappedPtr & mapped)
     {
-        std::lock_guard lock(mutex); 
+        std::lock_guard lock(mutex);
 
         if (auto v = getImpl(key))
         {
@@ -116,11 +62,11 @@ public:
             return false;
         }
 
-        if (resv.find(key) == resv.end()) 
+        if (resv.find(key) == resv.end())
         {
             LOG_INFO(&Logger::get("QueryCache"), "CACHE reserved " << key);
             resv.insert(key);
-            return true; 
+            return true;
         }
 
         return false;
@@ -128,7 +74,7 @@ public:
 
     MappedPtr waitAndGet(const Key & key)
     {
-        std::unique_lock<std::mutex> lock(mutex); 
+        std::unique_lock<std::mutex> lock(mutex);
         MappedPtr ret = nullptr;
 
         cv.wait(lock,
@@ -137,33 +83,24 @@ public:
                     if (v)
                     {
                         ret = v;
-                        return true; 
+                        return true;
                     }
-                    else 
+                    else
                     {
                         return false;
                     }
                 }
-            ); 
+            );
 
         LOG_INFO(&Logger::get("QueryCache"), "CACHE waitAndGet " << key);
 
         return ret;
     }
 
-    void set(const Key & key, const MappedPtr & mapped)
+    void set(const Key & key, const MappedPtr & mapped) override
     {
         std::lock_guard lock(mutex);
 
-        setImpl(key, mapped, lock);
-        
-        clearReservation(key);
-    }
-
-    void add(const Key & key, const MappedPtr & mapped)
-    {
-        std::lock_guard lock(mutex);
-        
         if (auto v = getImpl(key))
             v->add(mapped);
         else
@@ -172,10 +109,15 @@ public:
         clearReservation(key);
     }
 
+    static String makeKey(const String query, const UInt32 shard_num = 0, const QueryProcessingStage::Enum processed_stage = QueryProcessingStage::FetchColumns)
+    {
+        return query + "_" + std::to_string(shard_num) + "_" + QueryProcessingStage::toString(processed_stage);
+    }
+
 private:
     void clearReservation(const Key & key)
     {
-        if (resv.find(key) != resv.end()) 
+        if (resv.find(key) != resv.end())
         {
             resv.erase(key);
         }
@@ -187,5 +129,7 @@ private:
 };
 
 using QueryCachePtr = std::shared_ptr<QueryCache>;
+
+extern QueryCache g_query_cache;
 
 }

@@ -58,7 +58,21 @@ Block IBlockInputStream::read()
         limit_exceeded_need_break = true;
 
     if (!limit_exceeded_need_break)
+    {
         res = readImpl();
+
+        if (query_cache_key.length() > 0)
+        {
+            if (res)
+            {
+                result_blocks.push_back(res);
+            }
+            else
+            {
+                g_query_cache.set(query_cache_key, std::make_shared<QueryResult>(QueryResult(std::make_shared<Blocks>(result_blocks))));
+            }
+        }
+    }
 
     if (res)
     {
@@ -72,10 +86,6 @@ Block IBlockInputStream::read()
 
         if (quota != nullptr)
             checkQuota(res);
-
-        // TODO: res modifications?
-        if (cache)
-            addQueryCache(shard_num, query, processed_stage, res);
     }
     else
     {
