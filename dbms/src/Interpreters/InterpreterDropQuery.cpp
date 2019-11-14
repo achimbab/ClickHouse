@@ -4,6 +4,7 @@
 #include <Interpreters/Context.h>
 #include <Interpreters/DDLWorker.h>
 #include <Interpreters/InterpreterDropQuery.h>
+#include <Interpreters/QueryCache.h>
 #include <Parsers/ASTDropQuery.h>
 #include <Storages/IStorage.h>
 #include <Common/escapeForFileName.h>
@@ -43,6 +44,8 @@ BlockIO InterpreterDropQuery::execute()
         return executeToTable(drop.database, drop.table, drop.kind, drop.if_exists, drop.temporary, drop.no_ddl_lock);
     else if (!drop.database.empty())
         return executeToDatabase(drop.database, drop.kind, drop.if_exists);
+    else if(drop.query_cache)
+        return executeToQueryCache();
     else
         throw Exception("Database and table names is empty.", ErrorCodes::LOGICAL_ERROR);
 }
@@ -215,6 +218,12 @@ BlockIO InterpreterDropQuery::executeToDatabase(String & database_name, ASTDropQ
         }
     }
 
+    return {};
+}
+
+BlockIO InterpreterDropQuery::executeToQueryCache()
+{
+    g_query_cache.reset();
     return {};
 }
 

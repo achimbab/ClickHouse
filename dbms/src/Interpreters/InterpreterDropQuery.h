@@ -37,5 +37,7 @@ private:
     DatabaseAndTable tryGetDatabaseAndTable(String & database_name, String & table_name, bool if_exists);
 
     BlockIO executeToTemporaryTable(String & table_name, ASTDropQuery::Kind kind);
+
+    BlockIO executeToQueryCache();
 };
 }
