@@ -3,6 +3,7 @@
 #include <Core/Block.h>
 #include <Core/QueryProcessingStage.h>
 #include <Common/LRUCache.h>
+#include <Parsers/IAST.h>
 
 #include <set>
 #include <mutex>
@@ -112,6 +113,15 @@ public:
     static String makeKey(const String query, const UInt32 shard_num = 0, const QueryProcessingStage::Enum processed_stage = QueryProcessingStage::FetchColumns)
     {
         return query + "_" + std::to_string(shard_num) + "_" + QueryProcessingStage::toString(processed_stage);
+    }
+
+    static String makeKey(const IAST & ast)
+    {
+        std::ostringstream out;
+        IAST::FormatSettings settings(out, true);
+        settings.with_alias = false;
+        ast.format(settings);
+        return out.str();
     }
 
 private:

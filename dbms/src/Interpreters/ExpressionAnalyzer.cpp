@@ -239,8 +239,8 @@ void SelectQueryExpressionAnalyzer::tryMakeSetForIndexFromSubquery(const ASTPtr 
 
     // Cache
     SetPtr setInCache = nullptr;
-    auto subquery = queryToString(subquery_or_table_name);
-    auto key = QueryCache::makeKey(subquery, 0, QueryProcessingStage::FetchColumns);
+    auto key = QueryCache::makeKey(*subquery_or_table_name);
+    std::cout << "    CACHE KEY : " << key << std::endl;
     if (context.getSettingsRef().use_experimental_query_cache)
     {
         auto cache = g_query_cache.get(key);

@@ -609,7 +609,7 @@ SetPtr ActionsMatcher::makeSet(const ASTFunction & node, Data & data)
 
             if (data.context.getSettingsRef().use_experimental_query_cache)
             {
-                auto key = QueryCache::makeKey(set_id);
+                auto key = QueryCache::makeKey(*arg);
                 auto cache = g_query_cache.get(key);
                 if (cache)
                 {
