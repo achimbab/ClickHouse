@@ -110,17 +110,13 @@ public:
         clearReservation(key);
     }
 
-    static String makeKey(const String query, const UInt32 shard_num = 0, const QueryProcessingStage::Enum processed_stage = QueryProcessingStage::FetchColumns)
-    {
-        return query + "_" + std::to_string(shard_num) + "_" + QueryProcessingStage::toString(processed_stage);
-    }
-
-    static String makeKey(const IAST & ast)
+    static String makeKey(const IAST & ast, const UInt32 shard_num = 0, const QueryProcessingStage::Enum processed_stage = QueryProcessingStage::FetchColumns)
     {
         std::ostringstream out;
         IAST::FormatSettings settings(out, true);
         settings.with_alias = false;
         ast.format(settings);
+        out << "_" << shard_num << "_" << QueryProcessingStage::toString(processed_stage);
         return out.str();
     }
 

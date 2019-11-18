@@ -63,11 +63,12 @@ SelectStreamFactory::SelectStreamFactory(
 namespace
 {
 
-BlockInputStreamPtr createLocalStream(const String query, const UInt32 shard_num, const ASTPtr & query_ast, const Context & context, QueryProcessingStage::Enum processed_stage)
+BlockInputStreamPtr createLocalStream(const ASTPtr & query_ast, const Context & context, QueryProcessingStage::Enum processed_stage)
 {
     if (context.getSettingsRef().use_experimental_query_cache)
     {
-        auto key = QueryCache::makeKey(query, shard_num, processed_stage);
+        auto key = QueryCache::makeKey(*query_ast, 0, processed_stage);
+        std::cout << "    CACHE KEY : " << key << std::endl;
         auto cache = g_query_cache.get(key);
         if (cache)
             return std::make_shared<CacheBlockInputStream>(*cache->blocks);
@@ -79,7 +80,7 @@ BlockInputStreamPtr createLocalStream(const String query, const UInt32 shard_num
     BlockInputStreamPtr stream = interpreter.execute().in;
 
     if (context.getSettingsRef().use_experimental_query_cache)
-        stream->enableQueryCache(QueryCache::makeKey(query, shard_num, processed_stage));
+        stream->enableQueryCache(QueryCache::makeKey(*query_ast, 0, processed_stage));
     /** Materialization is needed, since from remote servers the constants come materialized.
       * If you do not do this, different types (Const and non-Const) columns will be produced in different threads,
       * And this is not allowed, since all code is based on the assumption that in the block stream all types are the same.
@@ -103,14 +104,14 @@ void SelectStreamFactory::createForShard(
 {
     auto emplace_local_stream = [&]()
     {
-        res.emplace_back(createLocalStream(query, shard_info.shard_num, query_ast, context, processed_stage));
+        res.emplace_back(createLocalStream(query_ast, context, processed_stage));
     };
 
     auto emplace_remote_stream = [&]()
     {
         if (context.getSettingsRef().use_experimental_query_cache)
         {
-            auto key = QueryCache::makeKey(query, shard_info.shard_num, processed_stage);
+            auto key = QueryCache::makeKey(*query_ast, shard_info.shard_num, processed_stage);
             auto cache = g_query_cache.get(key);
             if (cache)
             {
@@ -123,7 +124,7 @@ void SelectStreamFactory::createForShard(
             shard_info.pool, query, header, context, nullptr, throttler, scalars, external_tables, processed_stage);
 
         if (context.getSettingsRef().use_experimental_query_cache)
-            stream->enableQueryCache(QueryCache::makeKey(query, shard_info.shard_num, processed_stage));
+            stream->enableQueryCache(QueryCache::makeKey(*query_ast, shard_info.shard_num, processed_stage));
         stream->setPoolMode(PoolMode::GET_MANY);
         if (!table_func_ptr)
             stream->setMainTable(main_table);
@@ -255,7 +256,7 @@ void SelectStreamFactory::createForShard(
             }
 
             if (try_results.empty() || local_delay < max_remote_delay)
-                return createLocalStream(query, shard_num, query_ast, context, stage);
+                return createLocalStream(query_ast, context, stage);
             else
             {
                 std::vector<IConnectionPool::Entry> connections;
