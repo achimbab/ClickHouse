@@ -37,6 +37,7 @@
 #include <Interpreters/convertFieldToType.h>
 #include <Interpreters/interpretSubquery.h>
 #include <Interpreters/DatabaseAndTableWithAlias.h>
+#include <Interpreters/QueryCache.h>
 
 namespace DB
 {
@@ -607,9 +608,29 @@ SetPtr ActionsMatcher::makeSet(const ASTFunction & node, Data & data, bool no_su
         if (!subquery_for_set.source && data.no_storage_or_local)
         {
             auto interpreter = interpretSubquery(right_in_operand, data.context, data.subquery_depth, {});
-            subquery_for_set.source = std::make_shared<LazyBlockInputStream>(
-                interpreter->getSampleBlock(), [interpreter]() mutable { return interpreter->execute().in; });
-
+            auto create_stream = [&] {
+                return std::make_shared<LazyBlockInputStream>(
+                    interpreter->getSampleBlock(), [interpreter]() mutable { return interpreter->execute().in; });
+            };
+            
+            if (data.context.getSettingsRef().use_experimental_query_cache)
+            {
+                auto key = QueryCache::makeKey(*arg);
+                auto cache = g_query_cache.get(key);
+                if (cache)
+                {
+                    subquery_for_set.source = std::make_shared<CacheBlockInputStream>(*cache->blocks);
+                }
+                else
+                {
+                    subquery_for_set.source = create_stream();
+                    subquery_for_set.source->enableQueryCache(key);
+                }
+            }
+            else
+            {
+                subquery_for_set.source = create_stream();
+            }
             /** Why is LazyBlockInputStream used?
               *
               * The fact is that when processing a query of the form
