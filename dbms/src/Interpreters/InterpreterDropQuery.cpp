@@ -44,7 +44,7 @@ BlockIO InterpreterDropQuery::execute()
         return executeToTable(drop.database, drop.table, drop.kind, drop.if_exists, drop.temporary, drop.no_ddl_lock);
     else if (!drop.database.empty())
         return executeToDatabase(drop.database, drop.kind, drop.if_exists);
-    else if(drop.query_cache)
+    else if (drop.query_cache)
         return executeToQueryCache();
     else
         throw Exception("Database and table names is empty.", ErrorCodes::LOGICAL_ERROR);
