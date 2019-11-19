@@ -74,7 +74,7 @@ BlockInputStreamPtr createLocalStream(const ASTPtr & query_ast, const Block & he
     if (context.getSettingsRef().use_experimental_query_cache)
     {
         auto key = QueryCache::makeKey(*query_ast, 0, processed_stage);
-        auto cache = g_query_cache.get(key);
+        auto cache = context.getQueryCache()->get(key);
         if (cache)
             return std::make_shared<CacheBlockInputStream>(*cache->blocks);
     }
@@ -84,7 +84,7 @@ BlockInputStreamPtr createLocalStream(const ASTPtr & query_ast, const Block & he
     InterpreterSelectQuery interpreter{query_ast, context, SelectQueryOptions(processed_stage)};
     BlockInputStreamPtr stream = interpreter.execute().in;
     if (context.getSettingsRef().use_experimental_query_cache)
-        stream->enableQueryCache(QueryCache::makeKey(*query_ast, 0, processed_stage));
+        stream->enableQueryCache(QueryCache::makeKey(*query_ast, 0, processed_stage), context.getQueryCache());
 
     /** Materialization is needed, since from remote servers the constants come materialized.
       * If you do not do this, different types (Const and non-Const) columns will be produced in different threads,
@@ -132,7 +132,7 @@ void SelectStreamFactory::createForShard(
         if (context.getSettingsRef().use_experimental_query_cache)
         {
             auto key = QueryCache::makeKey(*query_ast, shard_info.shard_num, processed_stage);
-            auto cache = g_query_cache.get(key);
+            auto cache = context.getQueryCache()->get(key);
             if (cache)
             {
                 res.emplace_back(std::make_shared<CacheBlockInputStream>(*cache->blocks));
@@ -146,7 +146,7 @@ void SelectStreamFactory::createForShard(
         if (!table_func_ptr)
             stream->setMainTable(main_table);
         if (context.getSettingsRef().use_experimental_query_cache)
-            stream->enableQueryCache(QueryCache::makeKey(*query_ast, shard_info.shard_num, processed_stage));
+            stream->enableQueryCache(QueryCache::makeKey(*query_ast, shard_info.shard_num, processed_stage), context.getQueryCache());
         res.emplace_back(std::move(stream));
     };
 

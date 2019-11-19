@@ -26,6 +26,7 @@ namespace ErrorCodes
 class ProcessListElement;
 class QuotaForIntervals;
 class QueryStatus;
+class QueryCache;
 struct SortColumnDescription;
 using SortDescription = std::vector<SortColumnDescription>;
 
@@ -229,7 +230,11 @@ public:
     /// Enable calculation of minimums and maximums by the result columns.
     void enableExtremes() { enabled_extremes = true; }
 
-    void enableQueryCache(const String key) { query_cache_key = key; }
+    void enableQueryCache(const String key, std::shared_ptr<QueryCache> query_cache_)
+    {
+        query_cache_key = key;
+        query_cache = query_cache_;
+    }
 
 protected:
     /// Order is important: `table_locks` must be destroyed after `children` so that tables from
@@ -272,6 +277,7 @@ private:
     // Used by query cache
     String query_cache_key = "";
     Blocks result_blocks;
+    std::shared_ptr<QueryCache> query_cache;
 
     /// The limit on the number of rows/bytes has been exceeded, and you need to stop execution on the next `read` call, as if the thread has run out.
     bool limit_exceeded_need_break = false;

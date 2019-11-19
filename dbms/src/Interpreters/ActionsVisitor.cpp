@@ -617,7 +617,8 @@ SetPtr ActionsMatcher::makeSet(const ASTFunction & node, Data & data, bool no_su
             if (data.context.getSettingsRef().use_experimental_query_cache)
             {
                 auto key = QueryCache::makeKey(args);
-                auto cache = g_query_cache.get(key);
+                auto query_cache = data.context.getQueryCache();
+                auto cache = query_cache->get(key);
                 if (cache)
                 {
                     subquery_for_set.source = std::make_shared<CacheBlockInputStream>(*cache->blocks);
@@ -625,7 +626,7 @@ SetPtr ActionsMatcher::makeSet(const ASTFunction & node, Data & data, bool no_su
                 else
                 {
                     subquery_for_set.source = create_stream();
-                    subquery_for_set.source->enableQueryCache(key);
+                    subquery_for_set.source->enableQueryCache(key, query_cache);
                 }
             }
             else

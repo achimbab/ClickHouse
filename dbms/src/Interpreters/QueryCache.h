@@ -67,6 +67,4 @@ public:
 
 using QueryCachePtr = std::shared_ptr<QueryCache>;
 
-extern QueryCache g_query_cache;
-
 }

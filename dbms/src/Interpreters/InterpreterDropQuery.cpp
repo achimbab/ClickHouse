@@ -286,7 +286,7 @@ BlockIO InterpreterDropQuery::executeToDatabase(String & database_name, ASTDropQ
 
 BlockIO InterpreterDropQuery::executeToQueryCache()
 {
-    g_query_cache.reset();
+    context.dropQueryCache();
     return {};
 }
 

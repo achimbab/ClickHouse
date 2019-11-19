@@ -6,9 +6,6 @@
 namespace DB
 {
 
-// TODO: Move temp global vars to global_context
-QueryCache g_query_cache(0);
-
 QueryResult::QueryResult() :
     blocks(std::make_shared<Blocks>())
 {
