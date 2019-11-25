@@ -509,7 +509,7 @@ int Server::main(const std::vector<std::string> & /*args*/)
     global_context->setMarkCache(mark_cache_size);
 
     /// Size of cache for query results.
-    size_t query_cache_size = config().getUInt64("query_cache_memory_size", 1000000000);
+    size_t query_cache_size = config().getUInt64("query_cache_memory_size", 0);
     if (!query_cache_size)
         LOG_ERROR(log, "Too low query cache memory size will lead to performance degradation.");
     if (query_cache_size > max_cache_size)

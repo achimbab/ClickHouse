@@ -386,7 +386,8 @@ struct Settings : public SettingsCollection<Settings>
     \
     M(SettingBool, allow_experimental_low_cardinality_type, true, "Obsolete setting, does nothing. Will be removed after 2019-08-13") \
     M(SettingBool, compile, false, "Whether query compilation is enabled. Will be removed after 2020-03-13") \
-    M(SettingBool, use_experimental_query_cache, false, "Whether to use the cache of query results.") \
+    M(SettingBool, use_experimental_local_query_cache, false, "Whether to use the cache of local query results.") \
+    M(SettingBool, use_experimental_distributed_query_cache, false, "Whether to use the cache of distributed query results.") \
     M(SettingUInt64, query_cache_memory_size, 1000000000, "Maximum memory usage for query caches.") \
     M(SettingUInt64, query_cache_min_lifetime, 86400, "If the maximum size of query_cache is exceeded, delete only records older than query_cache_min_lifetime seconds.") \
 

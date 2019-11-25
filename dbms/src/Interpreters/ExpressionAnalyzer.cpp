@@ -237,9 +237,10 @@ void SelectQueryExpressionAnalyzer::tryMakeSetForIndexFromSubquery(const ASTPtr 
     if (prepared_sets.count(set_key))
         return; /// Already prepared.
 
-    if (context.getSettingsRef().use_experimental_query_cache)
+    if (context.getSettingsRef().use_experimental_local_query_cache)
     {
-        auto cache = context.getQueryCache()->get(QueryCache::makeKey(*subquery_or_table_name));
+        auto query_info = QueryCache::getQueryInfo(*subquery_or_table_name, context);
+        auto cache = context.getQueryCache()->get(query_info.key);
         if (cache)
         {
             prepared_sets[set_key] = cache->set;
@@ -264,9 +265,10 @@ void SelectQueryExpressionAnalyzer::tryMakeSetForIndexFromSubquery(const ASTPtr 
     set->finishInsert();
     res.in->readSuffix();
 
-    if (context.getSettingsRef().use_experimental_query_cache)
+    if (context.getSettingsRef().use_experimental_local_query_cache)
     {
-        context.getQueryCache()->set(QueryCache::makeKey(*subquery_or_table_name), std::make_shared<QueryResult>(set));
+        auto query_info = QueryCache::getQueryInfo(*subquery_or_table_name, context);
+        context.getQueryCache()->set(query_info.key, std::make_shared<QueryResult>(query_info.tables, set));
     }
     prepared_sets[set_key] = std::move(set);
 }

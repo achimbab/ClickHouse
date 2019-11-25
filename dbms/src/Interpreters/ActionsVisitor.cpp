@@ -614,11 +614,11 @@ SetPtr ActionsMatcher::makeSet(const ASTFunction & node, Data & data, bool no_su
                     interpreter->getSampleBlock(), [interpreter]() mutable { return interpreter->execute().in; });
             };
 
-            if (data.context.getSettingsRef().use_experimental_query_cache)
+            if (data.context.getSettingsRef().use_experimental_local_query_cache)
             {
-                auto key = QueryCache::makeKey(args);
+                auto query_info = QueryCache::getQueryInfo(*right_in_operand, data.context);
                 auto query_cache = data.context.getQueryCache();
-                auto cache = query_cache->get(key);
+                auto cache = query_cache->get(query_info.key);
                 if (cache)
                 {
                     subquery_for_set.source = std::make_shared<CacheBlockInputStream>(*cache->blocks);
@@ -626,7 +626,7 @@ SetPtr ActionsMatcher::makeSet(const ASTFunction & node, Data & data, bool no_su
                 else
                 {
                     subquery_for_set.source = create_stream();
-                    subquery_for_set.source->enableQueryCache(key, query_cache);
+                    subquery_for_set.source->enableQueryCache(std::make_shared<QueryInfo>(query_info), query_cache);
                 }
             }
             else

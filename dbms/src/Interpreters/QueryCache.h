@@ -6,6 +6,7 @@
 #include <Core/QueryProcessingStage.h>
 #include <Common/LRUCache.h>
 #include <Parsers/IAST.h>
+#include <Interpreters/DatabaseAndTableWithAlias.h>
 
 #include <set>
 #include <mutex>
@@ -17,14 +18,19 @@ namespace DB
 class Set;
 using SetPtr = std::shared_ptr<Set>;
 
+struct DatabaseAndTableWithAlias;
+
 struct QueryResult
 {
+    std::vector<DatabaseAndTableWithAlias> tables;
     BlocksPtr blocks;
     SetPtr set;
 
     QueryResult();
-    QueryResult(BlocksPtr blocks_) : blocks(blocks_) {}
-    QueryResult(SetPtr set_) : blocks(std::make_shared<Blocks>()), set(set_) {}
+    QueryResult(std::vector<DatabaseAndTableWithAlias> tables_, BlocksPtr blocks_) : 
+        tables(tables_), blocks(blocks_) {}
+    QueryResult(std::vector<DatabaseAndTableWithAlias> tables_, SetPtr set_) : 
+        tables(tables_), blocks(std::make_shared<Blocks>()), set(set_) {}
 
     void add(const std::shared_ptr<QueryResult> & res);
 
@@ -34,6 +40,17 @@ struct QueryResult
 };
 
 using QueryResultPtr = std::shared_ptr<QueryResult>;
+
+struct QueryInfo
+{
+    String key;
+    std::vector<DatabaseAndTableWithAlias> tables;
+
+    operator bool() const
+    {
+        return key.size() > 0 || tables.size() > 0;
+    }
+};
 
 struct QueryResultWeightFunction
 {
@@ -52,19 +69,11 @@ public:
     QueryCache(size_t max_size_in_bytes, const Delay & expiration_delay_ = Delay::zero())
         : Base(max_size_in_bytes, expiration_delay_) {}
 
-    static String makeKey(const IAST & ast, const UInt32 shard_num = 0, const QueryProcessingStage::Enum processed_stage = QueryProcessingStage::FetchColumns)
-    {
-        std::ostringstream out;
-        IAST::FormatSettings settings(out, true);
-        settings.with_alias = false;
-        ast.format(settings);
-        out << "_" << shard_num << "_" << QueryProcessingStage::toString(processed_stage);
-        auto key = out.str();
-        LOG_DEBUG(&Logger::get("QueryCache"), "key: " << key);
-        return key;
-    }
+    static QueryInfo getQueryInfo(const IAST & ast, const Context & ctx, const UInt32 shard_num = 0, const QueryProcessingStage::Enum processed_stage = QueryProcessingStage::FetchColumns);
 };
 
 using QueryCachePtr = std::shared_ptr<QueryCache>;
+
+void getTables(const IAST & ast, std::vector<DatabaseAndTableWithAlias> & databasesAndTables, const String & current_database);
 
 }
