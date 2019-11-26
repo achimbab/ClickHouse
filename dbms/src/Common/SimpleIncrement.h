@@ -1,6 +1,5 @@
 #pragma once
 
-#include <common/likely.h>
 #include <common/Types.h>
 #include <atomic>
 
@@ -18,11 +17,8 @@ struct SimpleIncrement
         value = new_value;
     }
 
-    UInt64 get(const bool increment = false)
+    UInt64 get()
     {
-        if (unlikely(increment))
-            return value;
-        else
-            return ++value;
+        return ++value;
     }
 };

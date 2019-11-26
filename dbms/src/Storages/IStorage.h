@@ -434,6 +434,8 @@ public:
         return {};
     }
 
+    virtual UInt64 getVersion() const { return 0; }
+
 private:
     /// You always need to take the next three locks in this order.
 

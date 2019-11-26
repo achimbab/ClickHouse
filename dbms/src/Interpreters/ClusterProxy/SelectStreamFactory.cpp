@@ -74,7 +74,7 @@ BlockInputStreamPtr createLocalStream(const ASTPtr & query_ast, const Block & he
     if (context.getSettingsRef().use_experimental_distributed_query_cache)
     {
         auto query_info = QueryCache::getQueryInfo(*query_ast, context, 0, processed_stage);
-        auto cache = context.getQueryCache()->get(query_info.key);
+        auto cache = context.getQueryCache()->getCache(query_info.key, context);
         if (cache)
             return std::make_shared<CacheBlockInputStream>(*cache->blocks);
     }
@@ -135,7 +135,7 @@ void SelectStreamFactory::createForShard(
         if (context.getSettingsRef().use_experimental_distributed_query_cache)
         {
             auto query_info = QueryCache::getQueryInfo(*query_ast, context, shard_info.shard_num, processed_stage);
-            auto cache = context.getQueryCache()->get(query_info.key);
+            auto cache = context.getQueryCache()->getCache(query_info.key, context);
             if (cache)
             {
                 res.emplace_back(std::make_shared<CacheBlockInputStream>(*cache->blocks));

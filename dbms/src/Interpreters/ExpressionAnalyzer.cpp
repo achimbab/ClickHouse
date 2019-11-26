@@ -240,7 +240,7 @@ void SelectQueryExpressionAnalyzer::tryMakeSetForIndexFromSubquery(const ASTPtr 
     if (context.getSettingsRef().use_experimental_local_query_cache)
     {
         auto query_info = QueryCache::getQueryInfo(*subquery_or_table_name, context);
-        auto cache = context.getQueryCache()->get(query_info.key);
+        auto cache = context.getQueryCache()->getCache(query_info.key, context);
         if (cache)
         {
             prepared_sets[set_key] = cache->set;

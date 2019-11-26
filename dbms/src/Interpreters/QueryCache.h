@@ -18,18 +18,24 @@ namespace DB
 class Set;
 using SetPtr = std::shared_ptr<Set>;
 
-struct DatabaseAndTableWithAlias;
+struct TableInfo
+{
+    String database;
+    String table;
+    String alias;
+    UInt64 version;
+};
 
 struct QueryResult
 {
-    std::vector<DatabaseAndTableWithAlias> tables;
+    std::vector<TableInfo> tables;
     BlocksPtr blocks;
     SetPtr set;
 
     QueryResult();
-    QueryResult(std::vector<DatabaseAndTableWithAlias> tables_, BlocksPtr blocks_) : 
+    QueryResult(std::vector<TableInfo> tables_, BlocksPtr blocks_) : 
         tables(tables_), blocks(blocks_) {}
-    QueryResult(std::vector<DatabaseAndTableWithAlias> tables_, SetPtr set_) : 
+    QueryResult(std::vector<TableInfo> tables_, SetPtr set_) : 
         tables(tables_), blocks(std::make_shared<Blocks>()), set(set_) {}
 
     void add(const std::shared_ptr<QueryResult> & res);
@@ -44,7 +50,7 @@ using QueryResultPtr = std::shared_ptr<QueryResult>;
 struct QueryInfo
 {
     String key;
-    std::vector<DatabaseAndTableWithAlias> tables;
+    std::vector<TableInfo> tables;
 
     operator bool() const
     {
@@ -68,6 +74,8 @@ private:
 public:
     QueryCache(size_t max_size_in_bytes, const Delay & expiration_delay_ = Delay::zero())
         : Base(max_size_in_bytes, expiration_delay_) {}
+
+    std::shared_ptr<QueryResult> getCache(const Key & key, const Context & context);
 
     static QueryInfo getQueryInfo(const IAST & ast, const Context & ctx, const UInt32 shard_num = 0, const QueryProcessingStage::Enum processed_stage = QueryProcessingStage::FetchColumns);
 };

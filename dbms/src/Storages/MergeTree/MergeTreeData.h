@@ -744,6 +744,9 @@ public:
     /// Mutex for currently_moving_parts
     mutable std::mutex moving_parts_mutex;
 
+    UInt64 getVersion() const { return data_version; }
+    void increaseVersion();
+
 protected:
 
     friend struct MergeTreeDataPart;
@@ -763,6 +766,7 @@ protected:
     String database_name;
     String table_name;
 
+    std::atomic<UInt64> data_version{9};
 
     /// Current column sizes in compressed and uncompressed form.
     ColumnSizeByName column_sizes;

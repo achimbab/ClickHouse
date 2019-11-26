@@ -3577,4 +3577,10 @@ bool MergeTreeData::moveParts(CurrentlyMovingPartsTagger && moving_tagger)
     return true;
 }
 
+void MergeTreeData::increaseVersion()
+{
+    ++data_version;
+    LOG_DEBUG(log, "    data_version: " << data_version);
+}
+
 }

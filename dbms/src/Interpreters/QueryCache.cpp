@@ -8,6 +8,8 @@
 #include <Interpreters/QueryCache.h>
 #include <Interpreters/Set.h>
 
+#include <Storages/IStorage.h>
+
 #include <iostream>
 
 namespace DB
@@ -54,13 +56,60 @@ QueryInfo QueryCache::getQueryInfo(const IAST & ast, const Context & ctx, const 
     std::ostringstream out_table;
     std::vector<DatabaseAndTableWithAlias> tables;
     getTables(ast, tables, ctx.getCurrentDatabase());
+
+    std::vector<TableInfo> tables_info;
     for (auto it = tables.begin(); it != tables.end(); ++it)
     {
-        out_table << it->database << "." << it->table << "(" << it->alias << ") ";
+        auto storage = ctx.getTable(it->database, it->table);
+        if (!storage)
+        {
+            // TODO return nullptr
+            return QueryInfo{};
+        }
+
+        TableInfo table_info;
+        table_info.database = it->database;
+        table_info.table = it->table;
+        table_info.alias = it->alias;
+        table_info.version = storage->getVersion();
+
+        tables_info.push_back(table_info);
+
+        // TODO remove
+        out_table << table_info.database << "." << table_info.table << "(" << table_info.alias << ")." << table_info.version;
     }
 
     LOG_DEBUG(&Logger::get("QueryCache"), "key: " << key << ", refs: " << out_table.str());
-    return QueryInfo{key, tables};
+    return QueryInfo{key, tables_info};
+}
+
+std::shared_ptr<QueryResult> QueryCache::getCache(const Key & key, const Context & context)
+{
+    auto res = get(key);
+    if (!res)
+        return res;
+
+    auto tbls = res->tables;
+
+    for (auto tbl : tbls)
+    {
+        auto storage = context.getTable(tbl.database, tbl.table);
+        if (!storage)
+            return nullptr;
+
+        auto sver = storage->getVersion();
+        if (tbl.version != sver)
+        {
+            LOG_DEBUG(&Logger::get("QueryCache"), "evict cache: " << key << ", cver: " << tbl.version << ", sver: " << sver);
+            return nullptr;
+        }
+        else
+        {
+            LOG_DEBUG(&Logger::get("QueryCache"), "matched cache: " << key << ", cver: " << tbl.version << ", sver: " << sver);
+        }
+    }
+
+    return res;
 }
 
 void getTables(const IAST & ast, std::vector<DatabaseAndTableWithAlias> & databasesAndTables, const String & current_database)
