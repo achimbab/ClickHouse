@@ -1,6 +1,4 @@
 #include <Parsers/ASTIdentifier.h>
-#include <Parsers/ASTSelectQuery.h>
-#include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTSubquery.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 
@@ -44,75 +42,78 @@ size_t QueryResult::size() const
     return bytes;
 }
 
-QueryInfo QueryCache::getQueryInfo(const IAST & ast, const Context & ctx, const UInt32 shard_num, const QueryProcessingStage::Enum processed_stage)
+String QueryCache::getKey(const IAST & ast, const UInt32 shard_num, const QueryProcessingStage::Enum processed_stage)
 {
     std::ostringstream out_key;
     IAST::FormatSettings settings(out_key, true);
     settings.with_alias = false;
+
     ast.format(settings);
     out_key << "_" << shard_num << "_" << QueryProcessingStage::toString(processed_stage);
     auto key = out_key.str();
+    LOG_DEBUG(&Logger::get("QueryCache"), "key: " << key);
 
-    std::ostringstream out_table;
-    std::vector<DatabaseAndTableWithAlias> tables;
-    getTables(ast, tables, ctx.getCurrentDatabase());
-
-    std::vector<TableInfo> tables_info;
-    for (auto it = tables.begin(); it != tables.end(); ++it)
-    {
-        auto storage = ctx.getTable(it->database, it->table);
-        if (!storage)
-        {
-            // TODO return nullptr
-            return QueryInfo{};
-        }
-
-        TableInfo table_info;
-        table_info.database = it->database;
-        table_info.table = it->table;
-        table_info.alias = it->alias;
-        table_info.version = storage->getVersion();
-
-        tables_info.push_back(table_info);
-
-        // TODO remove
-        out_table << table_info.database << "." << table_info.table << "(" << table_info.alias << ")." << table_info.version;
-    }
-
-    LOG_DEBUG(&Logger::get("QueryCache"), "key: " << key << ", refs: " << out_table.str());
-    return QueryInfo{key, tables_info};
+    return key;
 }
 
-std::shared_ptr<QueryResult> QueryCache::getCache(const Key & key, const Context & context)
+RefTablesPtr QueryCache::getRefTables(const IAST & ast, const Context & context)
+{
+    std::set<DatabaseAndTableWithAlias> tables;
+    getTables(ast, tables, context.getCurrentDatabase());
+
+    auto ref_tables = std::make_shared<RefTables>();
+    for (auto it = tables.begin(); it != tables.end(); ++it)
+    {
+        auto storage = context.getTable(it->database, it->table);
+        if (!storage)
+        {
+            return nullptr;
+        }
+
+        RefTable table;
+        table.database = it->database;
+        table.table = it->table;
+        table.alias = it->alias;
+        table.version = storage->getVersion();
+
+        ref_tables->push_back(table);
+
+        LOG_DEBUG(&Logger::get("QueryCache"), ", ref: " << table.database << "." << table.table << "(" << table.alias << ")." << table.version << ", ");
+    }
+
+    return ref_tables;
+}
+
+QueryResultPtr QueryCache::getCache(const Key & key, const Context & context)
 {
     auto res = get(key);
     if (!res)
         return res;
 
-    auto tbls = res->tables;
+    auto ref_tables = res->tables;
 
-    for (auto tbl : tbls)
+    for (auto table : *ref_tables)
     {
-        auto storage = context.getTable(tbl.database, tbl.table);
+        auto storage = context.getTable(table.database, table.table);
         if (!storage)
             return nullptr;
 
-        auto sver = storage->getVersion();
-        if (tbl.version != sver)
+        auto storage_version = storage->getVersion();
+        if (table.version == 0 || table.version != storage_version)
         {
-            LOG_DEBUG(&Logger::get("QueryCache"), "evict cache: " << key << ", cver: " << tbl.version << ", sver: " << sver);
+            LOG_DEBUG(&Logger::get("QueryCache"), "evict cache: " << key << ", cver: " << table.version << ", storage_version: " << storage_version);
             return nullptr;
         }
         else
         {
-            LOG_DEBUG(&Logger::get("QueryCache"), "matched cache: " << key << ", cver: " << tbl.version << ", sver: " << sver);
+            LOG_DEBUG(&Logger::get("QueryCache"), "matched cache: " << key << ", cver: " << table.version << ", storage_version: " << storage_version);
         }
     }
 
     return res;
 }
 
-void getTables(const IAST & ast, std::vector<DatabaseAndTableWithAlias> & databasesAndTables, const String & current_database)
+void getTables(const IAST & ast, std::set<DatabaseAndTableWithAlias> & databasesAndTables, const String & current_database)
 {
     if (auto * expr = ast.as<ASTTableExpression>())
     {
@@ -124,35 +125,13 @@ void getTables(const IAST & ast, std::vector<DatabaseAndTableWithAlias> & databa
         else if (expr->database_and_table_name)
             table = expr->database_and_table_name;
 
-        return getTables(*table, databasesAndTables, current_database);
+        databasesAndTables.insert(DatabaseAndTableWithAlias(*expr, current_database));
+        getTables(*table, databasesAndTables, current_database);
     }
 
-    if (const auto * table = ast.as<ASTIdentifier>())
+    for (auto child : ast.children)
     {
-        databasesAndTables.push_back(DatabaseAndTableWithAlias(*table, current_database));
-    }
-    else if (auto * subquery = ast.as<ASTSubquery>())
-    {
-        const auto * select_union = subquery->children[0]->as<ASTSelectWithUnionQuery>();
-        const size_t num_selects = select_union->list_of_selects->children.size();
-        for (size_t query_num = 0; query_num < num_selects; ++query_num)
-        {
-            const auto & select_query = select_union->list_of_selects->children[query_num]->as<ASTSelectQuery &>();
-
-            const auto * tables = select_query.tables()->as<ASTTablesInSelectQuery>();
-            if (!tables)
-                continue;
-
-            for (auto & child : tables->children)
-            {
-                auto element = child->as<ASTTablesInSelectQueryElement>();
-                if (element && element->table_expression)
-                {
-                    const auto & expr = element->table_expression->as<ASTTableExpression &>();
-                    databasesAndTables.push_back(DatabaseAndTableWithAlias(expr, current_database));
-                }
-            }
-        }
+        getTables(*child, databasesAndTables, current_database);
     }
 }
 

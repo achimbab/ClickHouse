@@ -62,12 +62,12 @@ Block IBlockInputStream::read()
     {
         res = readImpl();
 
-        if (query_info && query_cache)
+        if (query_cache_key.length() > 0 && query_cache)
         {
-            if (res)
+            if (res && res.rows() > 0)
                 result_blocks.push_back(res);
-            else
-                query_cache->set(query_info->key, std::make_shared<QueryResult>(query_info->tables, std::make_shared<Blocks>(result_blocks)));
+            else if (result_blocks.size() > 0)
+                query_cache->set(query_cache_key, std::make_shared<QueryResult>(query_cache_tables, std::make_shared<Blocks>(result_blocks)));
         }
     }
 

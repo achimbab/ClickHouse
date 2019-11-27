@@ -73,8 +73,8 @@ BlockInputStreamPtr createLocalStream(const ASTPtr & query_ast, const Block & he
 {
     if (context.getSettingsRef().use_experimental_distributed_query_cache)
     {
-        auto query_info = QueryCache::getQueryInfo(*query_ast, context, 0, processed_stage);
-        auto cache = context.getQueryCache()->getCache(query_info.key, context);
+        auto key = QueryCache::getKey(*query_ast, 0, processed_stage);
+        auto cache = context.getQueryCache()->getCache(key, context);
         if (cache)
             return std::make_shared<CacheBlockInputStream>(*cache->blocks);
     }
@@ -85,8 +85,10 @@ BlockInputStreamPtr createLocalStream(const ASTPtr & query_ast, const Block & he
     BlockInputStreamPtr stream = interpreter.execute().in;
     if (context.getSettingsRef().use_experimental_distributed_query_cache)
     {
-        auto query_info = QueryCache::getQueryInfo(*query_ast, context, 0, processed_stage);
-        stream->enableQueryCache(std::make_shared<QueryInfo>(query_info), context.getQueryCache());
+        auto key = QueryCache::getKey(*query_ast, 0, processed_stage);
+        auto tables = QueryCache::getRefTables(*query_ast, context);
+        if (tables)
+            stream->enableQueryCache(key, tables, context.getQueryCache());
     }
 
     /** Materialization is needed, since from remote servers the constants come materialized.
@@ -134,8 +136,8 @@ void SelectStreamFactory::createForShard(
     {
         if (context.getSettingsRef().use_experimental_distributed_query_cache)
         {
-            auto query_info = QueryCache::getQueryInfo(*query_ast, context, shard_info.shard_num, processed_stage);
-            auto cache = context.getQueryCache()->getCache(query_info.key, context);
+            auto key = QueryCache::getKey(*query_ast, shard_info.shard_num, processed_stage);
+            auto cache = context.getQueryCache()->getCache(key, context);
             if (cache)
             {
                 res.emplace_back(std::make_shared<CacheBlockInputStream>(*cache->blocks));
@@ -150,8 +152,10 @@ void SelectStreamFactory::createForShard(
             stream->setMainTable(main_table);
         if (context.getSettingsRef().use_experimental_distributed_query_cache)
         {
-            auto query_info = QueryCache::getQueryInfo(*query_ast, context, shard_info.shard_num, processed_stage);
-            stream->enableQueryCache(std::make_shared<QueryInfo>(query_info), context.getQueryCache());
+            auto key = QueryCache::getKey(*query_ast, shard_info.shard_num, processed_stage);
+            auto tables = QueryCache::getRefTables(*query_ast, context);
+            if (tables)
+                stream->enableQueryCache(key, tables, context.getQueryCache());
         }
         res.emplace_back(std::move(stream));
     };

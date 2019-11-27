@@ -744,8 +744,8 @@ public:
     /// Mutex for currently_moving_parts
     mutable std::mutex moving_parts_mutex;
 
-    UInt64 getVersion() const { return data_version; }
-    void increaseVersion();
+    UInt64 getVersion() const override { return data_version; }
+    void increaseVersion() { ++data_version; }
 
 protected:
 
