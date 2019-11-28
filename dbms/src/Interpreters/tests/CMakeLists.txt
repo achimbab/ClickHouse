@@ -62,7 +62,7 @@ add_executable (users users.cpp)
 target_link_libraries (users PRIVATE dbms clickhouse_common_config)
 
 add_executable (query_cache query_cache.cpp)
-target_link_libraries (query_cache PRIVATE dbms)
+target_link_libraries (query_cache PRIVATE dbms clickhouse_parsers)
 
 if (OS_LINUX)
     add_executable (internal_iotop internal_iotop.cpp)
