@@ -27,6 +27,7 @@
 #include <Interpreters/InJoinSubqueriesPreprocessor.h>
 #include <Interpreters/LogicalExpressionsOptimizer.h>
 #include <Interpreters/PredicateExpressionsOptimizer.h>
+#include <Interpreters/QueryCache.h>
 #include <Interpreters/ExternalDictionariesLoader.h>
 #include <Interpreters/Set.h>
 #include <Interpreters/AnalyzedJoin.h>
@@ -236,6 +237,17 @@ void SelectQueryExpressionAnalyzer::tryMakeSetForIndexFromSubquery(const ASTPtr 
     if (prepared_sets.count(set_key))
         return; /// Already prepared.
 
+    if (context.getSettingsRef().use_experimental_local_query_cache)
+    {
+        auto key = QueryCache::getKey(*subquery_or_table_name);
+        auto cache = context.getQueryCache()->getCache(key, context);
+        if (cache)
+        {
+            prepared_sets[set_key] = cache->set;
+            return;
+        }
+    }
+
     auto interpreter_subquery = interpretSubquery(subquery_or_table_name, context, subquery_depth + 1, {});
     BlockIO res = interpreter_subquery->execute();
 
@@ -253,6 +265,13 @@ void SelectQueryExpressionAnalyzer::tryMakeSetForIndexFromSubquery(const ASTPtr 
     set->finishInsert();
     res.in->readSuffix();
 
+    if (context.getSettingsRef().use_experimental_local_query_cache)
+    {
+        auto key = QueryCache::getKey(*subquery_or_table_name);
+        auto tables = QueryCache::getRefTables(*subquery_or_table_name, context);
+        if (tables)
+            context.getQueryCache()->set(key, std::make_shared<QueryResult>(tables, set));
+    }
     prepared_sets[set_key] = std::move(set);
 }
 
