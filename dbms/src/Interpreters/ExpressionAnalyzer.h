@@ -29,6 +29,13 @@ class ASTExpressionList;
 class ASTSelectQuery;
 struct ASTTablesInSelectQueryElement;
 
+struct WindowDescription
+{
+    String function_name;
+    Names argument_names;
+    String result_name;
+};
+
 /// ExpressionAnalyzer sources, intermediates and results. It splits data and logic, allows to test them separately.
 struct ExpressionAnalyzerData
 {
@@ -38,10 +45,12 @@ struct ExpressionAnalyzerData
     /// Columns after ARRAY JOIN, JOIN, and/or aggregation.
     NamesAndTypesList aggregated_columns;
     NamesAndTypesList array_join_columns;
+    NamesAndTypesList window_columns;
 
     bool has_aggregation = false;
     NamesAndTypesList aggregation_keys;
     AggregateDescriptions aggregate_descriptions;
+    WindowDescription window_description;
 
     bool has_global_subqueries = false;
 
@@ -140,6 +149,7 @@ protected:
       * Set has_aggregation = true if there is GROUP BY or at least one aggregate function.
       */
     void analyzeAggregation();
+    void analyzeWindow();
     bool makeAggregateDescriptions(ExpressionActionsPtr & actions);
 
     /// columns - the columns that are present before the transformations begin.
@@ -211,7 +221,8 @@ public:
     bool appendOrderBy(ExpressionActionsChain & chain, bool only_types, bool optimize_read_in_order);
     bool appendLimitBy(ExpressionActionsChain & chain, bool only_types);
     /// Deletes all columns except mentioned by SELECT, arranges the remaining columns and renames them to aliases.
-    void appendProjectResult(ExpressionActionsChain & chain) const;
+    bool appendWindowFunction(ExpressionActionsChain & chain, bool only_types);
+    void appendProjectResult(ExpressionActionsChain & chain, bool has_window_function) const;
 
     /// Create Set-s that we can from IN section to use the index on them.
     void makeSetsForIndex(const ASTPtr & node);

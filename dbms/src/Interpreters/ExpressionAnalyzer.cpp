@@ -47,6 +47,7 @@
 
 #include <ext/range.h>
 #include <DataTypes/DataTypeFactory.h>
+#include <Functions/FunctionFactory.h>
 #include <Functions/FunctionsMiscellaneous.h>
 #include <Parsers/ExpressionListParsers.h>
 #include <Parsers/parseQuery.h>
@@ -95,6 +96,7 @@ ExpressionAnalyzer::ExpressionAnalyzer(
     /// the global subquery will be replaced with a temporary table, resulting in aggregate_descriptions
     /// will contain out-of-date information, which will lead to an error when the query is executed.
     analyzeAggregation();
+    analyzeWindow();
 }
 
 bool ExpressionAnalyzer::isRemoteStorage() const
@@ -213,6 +215,34 @@ void ExpressionAnalyzer::analyzeAggregation()
     }
 }
 
+void ExpressionAnalyzer::analyzeWindow()
+{
+    auto * select_query = query->as<ASTSelectQuery>();
+
+    if (!select_query)
+        return;
+
+    window_columns = aggregated_columns;
+
+    for (auto child : select_query->select()->children)
+    {
+        auto func = child->as<ASTFunction>();
+        if (func && functionIsWindowOperator(func->name))
+        {
+            window_description.function_name = func->name;
+            for (auto & argument : func->arguments->children)
+                window_description.argument_names.push_back(argument->getColumnName());
+            //window_description.result_name = func->name;
+            window_description.result_name = func->getColumnName();
+
+            FunctionOverloadResolverPtr function_builder = FunctionFactory::instance().get(window_description.function_name, context);
+
+            window_columns.push_back(NameAndTypePair(window_description.result_name, std::make_shared<DataTypeUInt64>()));
+            // TODO: list os window functions
+            return;
+        }
+    }
+}
 
 void ExpressionAnalyzer::initGlobalSubqueriesAndExternalTables(bool do_global)
 {
@@ -785,7 +815,75 @@ bool SelectQueryExpressionAnalyzer::appendLimitBy(ExpressionActionsChain & chain
     return true;
 }
 
-void SelectQueryExpressionAnalyzer::appendProjectResult(ExpressionActionsChain & chain) const
+bool SelectQueryExpressionAnalyzer::appendWindowFunction(ExpressionActionsChain & chain, bool /*only_types*/)
+{
+    if (window_description.function_name == "")
+        return false;
+
+    initChain(chain, aggregated_columns);
+    ExpressionActionsChain::Step & step = chain.steps.back();
+
+    FunctionOverloadResolverPtr function_builder = FunctionFactory::instance().get(window_description.function_name, context);
+
+    ExpressionAction a;
+    a.type = a.APPLY_FUNCTION;
+    a.result_name = window_description.result_name;
+    a.function_builder = function_builder;
+    a.argument_names = window_description.argument_names;
+
+    ScopeStack actions_stack(step.actions, context);
+    actions_stack.addAction(a);
+
+    for (const auto & column : window_columns)
+    {
+        step.required_output.push_back(column.name);
+    }
+
+    return true;
+}
+
+// TODO
+//bool SelectQueryExpressionAnalyzer::appendWindowFunction(ExpressionActionsChain & chain, bool /*only_types*/)
+//{
+//    const auto * select_query = getSelectQuery();
+//
+//    //if (!select_query->windowFunction())
+//    //    return false;
+//
+//    initChain(chain, aggregated_columns);
+//    ExpressionActionsChain::Step & step = chain.steps.back();
+//
+//    FunctionOverloadResolverPtr function_builder = FunctionFactory::instance().get("countAccumulate", context);
+//
+//    ExpressionAction a;
+//    a.type = a.APPLY_FUNCTION;
+//    a.result_name = "countAccumulate(count(), p1)";
+//    a.function_builder = function_builder;
+//    a.argument_names.push_back("count()");
+//    a.argument_names.push_back("p1");
+//
+//    ScopeStack actions_stack(step.actions, context);
+//    actions_stack.addAction(a);
+//
+//    NameSet aggregated_names;
+//    for (const auto & column : aggregated_columns)
+//    {
+//        step.required_output.push_back(column.name);
+//        aggregated_names.insert(column.name);
+//    }
+//
+//    for (const auto & child : select_query->limitBy()->children)
+//    {
+//        auto child_name = child->getColumnName();
+//        if (!aggregated_names.count(child_name))
+//            step.required_output.push_back(std::move(child_name));
+//    }
+//    step.required_output.push_back(a.result_name);
+//
+//    return true;
+//}
+
+void SelectQueryExpressionAnalyzer::appendProjectResult(ExpressionActionsChain & chain, bool /*has_window_function*/) const
 {
     const auto * select_query = getSelectQuery();
 
@@ -804,6 +902,12 @@ void SelectQueryExpressionAnalyzer::appendProjectResult(ExpressionActionsChain &
             step.required_output.push_back(result_columns.back().second);
         }
     }
+
+    //if (has_window_function)
+    //{
+    //    result_columns.push_back(std::make_pair(window_description.result_name, window_description.result_name));
+    //    step.required_output.push_back(window_description.result_name);
+    //}
 
     step.actions->add(ExpressionAction::project(result_columns));
 }

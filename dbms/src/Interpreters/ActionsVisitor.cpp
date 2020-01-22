@@ -304,6 +304,9 @@ void ActionsMatcher::visit(const ASTFunction & node, const ASTPtr & ast, Data & 
     if (node.name == "lambda")
         throw Exception("Unexpected lambda expression", ErrorCodes::UNEXPECTED_EXPRESSION);
 
+    if (functionIsWindowOperator(node.name)/* && !data.window*/)
+        return;
+
     /// Function arrayJoin.
     if (node.name == "arrayJoin")
     {

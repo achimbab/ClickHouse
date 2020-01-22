@@ -821,9 +821,10 @@ void ExpressionActions::finalize(const Names & output_columns)
     for (size_t i = 0; i < output_columns.size(); ++i)
     {
         const std::string & name = output_columns[i];
-        if (!sample_block.has(name))
-            throw Exception("Unknown column: " + name + ", there are only columns "
-                            + sample_block.dumpNames(), ErrorCodes::UNKNOWN_IDENTIFIER);
+        // TODO
+        //if (!sample_block.has(name))
+        //    throw Exception("Unknown column: " + name + ", there are only columns "
+        //                    + sample_block.dumpNames(), ErrorCodes::UNKNOWN_IDENTIFIER);
         final_columns.insert(name);
     }
 

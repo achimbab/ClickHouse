@@ -642,6 +642,7 @@ InterpreterSelectQuery::analyzeExpressions(
 
     auto finalizeChain = [&](ExpressionActionsChain & chain)
     {
+        std::cout << std::endl << "    DUMP chain: " << chain.dumpChain() << std::endl << std::endl << std::endl;
         chain.finalize();
 
         if (has_prewhere)
@@ -798,7 +799,15 @@ InterpreterSelectQuery::analyzeExpressions(
             chain.addStep();
         }
 
-        query_analyzer.appendProjectResult(chain);
+        bool has_window_function = false;
+        if (query_analyzer.appendWindowFunction(chain, only_types))
+        {
+            res.before_projection = chain.getLastActions();
+            chain.addStep();
+            has_window_function = true;
+        }
+
+        query_analyzer.appendProjectResult(chain, has_window_function);
         res.final_projection = chain.getLastActions();
 
         finalizeChain(chain);
@@ -1267,6 +1276,11 @@ void InterpreterSelectQuery::executeImpl(TPipeline & pipeline, const BlockInputS
             {
                 executeExpression(pipeline, expressions.before_limit_by);
                 executeLimitBy(pipeline);
+            }
+
+            if (expressions.before_projection)
+            {
+                executeExpression(pipeline, expressions.before_projection);
             }
 
             executeWithFill(pipeline);
