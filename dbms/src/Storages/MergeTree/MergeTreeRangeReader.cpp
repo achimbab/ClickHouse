@@ -313,6 +313,9 @@ void MergeTreeRangeReader::ReadResult::optimize()
         }
         num_rows_to_skip_in_last_granule += rows_per_granule_original.back() - rows_per_granule.back();
 
+        filter_original = filter;
+        filter_holder_original = std::move(filter_holder);
+
         /// Check if const 1 after shrink
         if (countBytesInResultFilter(filter->getData()) + total_zero_rows_in_tails == total_rows_per_granule)
         {
@@ -329,12 +332,10 @@ void MergeTreeRangeReader::ReadResult::optimize()
             collapseZeroTails(filter->getData(), new_data);
             total_rows_per_granule = new_filter->size();
             num_rows = total_rows_per_granule;
-            filter_original = filter;
-            filter_holder_original = std::move(filter_holder);
             filter = new_filter.get();
             filter_holder = std::move(new_filter);
-            need_filter = true;
         }
+        need_filter = true;
     }
     /// Another guess, if it's worth filtering at PREWHERE
     else if (countBytesInResultFilter(filter->getData()) < 0.6 * filter->size())
