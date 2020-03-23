@@ -3,6 +3,8 @@
 #include <AggregateFunctions/AggregateFunctionNothing.h>
 #include <AggregateFunctions/AggregateFunctionCount.h>
 #include <AggregateFunctions/AggregateFunctionCombinatorFactory.h>
+#include <AggregateFunctions/AggregateFunctionWindowFunnelNoNullifyVariadic.h>
+#include <AggregateFunctions/AggregateFunctionWindowFunnel.h>
 #include "registerAggregateFunctions.h"
 
 
@@ -20,6 +22,17 @@ public:
     String getName() const override { return "Null"; }
 
     bool isForInternalUsageOnly() const override { return true; }
+
+    template<typename U> bool has(const Array & params, const U expected) const
+    {
+        for (size_t i = 1; i < params.size(); ++i)
+        {
+            U option = params.at(i).safeGet<U>();
+            if (option.compare(expected) == 0)
+                return true;
+        }
+        return false;
+    }
 
     DataTypes transformArguments(const DataTypes & arguments) const override
     {
@@ -55,6 +68,8 @@ public:
         /// - that means - count number of calls, when all arguments are not NULL.
         if (nested_function && nested_function->getName() == "count")
             return std::make_shared<AggregateFunctionCountNotNullUnary>(arguments[0], params);
+        else if (nested_function && nested_function->getName() == "windowFunnel" && has<String>(params, "no_nullify"))
+            return std::make_shared<AggregateFunctionWindowFunnelNoNullifyVariadic>(nested_function, arguments, params);
 
         if (has_null_types)
             return std::make_shared<AggregateFunctionNothing>(arguments, params);
