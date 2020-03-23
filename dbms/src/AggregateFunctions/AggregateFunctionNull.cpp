@@ -3,6 +3,7 @@
 #include <AggregateFunctions/AggregateFunctionNothing.h>
 #include <AggregateFunctions/AggregateFunctionCount.h>
 #include <AggregateFunctions/AggregateFunctionCombinatorFactory.h>
+#include <AggregateFunctions/AggregateFunctionWindowFunnelNotNullVariadic.h>
 #include "registerAggregateFunctions.h"
 
 
@@ -55,6 +56,8 @@ public:
         /// - that means - count number of calls, when all arguments are not NULL.
         if (nested_function && nested_function->getName() == "count")
             return std::make_shared<AggregateFunctionCountNotNullUnary>(arguments[0], params);
+        if (nested_function && nested_function->getName() == "windowFunnelNonNull")
+            return std::make_shared<AggregateFunctionWindowFunnelNotNullVariadic>(nested_function, arguments, params);
 
         if (has_null_types)
             return std::make_shared<AggregateFunctionNothing>(arguments, params);

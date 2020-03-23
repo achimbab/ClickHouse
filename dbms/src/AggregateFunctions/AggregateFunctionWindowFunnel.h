@@ -137,7 +137,7 @@ struct AggregateFunctionWindowFunnelData
   * - windowFunnel(window)(timestamp, cond1, cond2, cond3, ....)
   */
 template <typename T, typename Data>
-class AggregateFunctionWindowFunnel final
+class AggregateFunctionWindowFunnel 
     : public IAggregateFunctionDataHelper<Data, AggregateFunctionWindowFunnel<T, Data>>
 {
 private:
@@ -146,7 +146,6 @@ private:
     UInt8 strict;   // When the 'strict' is set, it applies conditions only for the not repeating values.
     UInt8 strict_order; // When the 'strict_order' is set, it doesn't allow interventions of other events.
                         // In the case of 'A->B->D->C', it stops finding 'A->B->C' at the 'D' and the max event level is 2.
-
 
     // Loop through the entire events_list, update the event timestamp value
     // The level path must be 1---2---3---...---check_events_size, find the max event level that statisfied the path in the sliding window.
@@ -270,6 +269,21 @@ public:
     void insertResultInto(ConstAggregateDataPtr place, IColumn & to) const override
     {
         assert_cast<ColumnUInt8 &>(to).getData().push_back(getEventLevel(this->data(place)));
+    }
+};
+
+template <typename T, typename Data>
+class AggregateFunctionWindowFunnelNonNull : public AggregateFunctionWindowFunnel<T, Data>
+{
+public:
+    AggregateFunctionWindowFunnelNonNull(const DataTypes & arguments, const Array & params)
+        : AggregateFunctionWindowFunnel<T, Data>(arguments, params)
+    {
+    }
+
+    String getName() const override
+    {
+        return "windowFunnelNonNull";
     }
 };
 

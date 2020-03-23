@@ -15,7 +15,7 @@ namespace DB
 namespace
 {
 
-template <template <typename> class Data>
+template <template <typename> class Data, template <typename, typename> class AggregationFunction>
 AggregateFunctionPtr createAggregateFunctionWindowFunnel(const std::string & name, const DataTypes & arguments, const Array & params)
 {
     if (params.size() < 1)
@@ -35,14 +35,14 @@ AggregateFunctionPtr createAggregateFunctionWindowFunnel(const std::string & nam
                     + name + ", must be UInt8", ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT};
     }
 
-    AggregateFunctionPtr res(createWithUnsignedIntegerType<AggregateFunctionWindowFunnel, Data>(*arguments[0], arguments, params));
+    AggregateFunctionPtr res(createWithUnsignedIntegerType<AggregationFunction, Data>(*arguments[0], arguments, params));
     WhichDataType which(arguments.front().get());
     if (res)
         return res;
     else if (which.isDate())
-        return std::make_shared<AggregateFunctionWindowFunnel<DataTypeDate::FieldType, Data<DataTypeDate::FieldType>>>(arguments, params);
+        return std::make_shared<AggregationFunction<DataTypeDate::FieldType, Data<DataTypeDate::FieldType>>>(arguments, params);
     else if (which.isDateTime())
-        return std::make_shared<AggregateFunctionWindowFunnel<DataTypeDateTime::FieldType, Data<DataTypeDateTime::FieldType>>>(arguments, params);
+        return std::make_shared<AggregationFunction<DataTypeDateTime::FieldType, Data<DataTypeDateTime::FieldType>>>(arguments, params);
 
     throw Exception{"Illegal type " + arguments.front().get()->getName()
             + " of first argument of aggregate function " + name + ", must be Unsigned Number, Date, DateTime",
@@ -53,7 +53,8 @@ AggregateFunctionPtr createAggregateFunctionWindowFunnel(const std::string & nam
 
 void registerAggregateFunctionWindowFunnel(AggregateFunctionFactory & factory)
 {
-    factory.registerFunction("windowFunnel", createAggregateFunctionWindowFunnel<AggregateFunctionWindowFunnelData>, AggregateFunctionFactory::CaseInsensitive);
+    factory.registerFunction("windowFunnel", createAggregateFunctionWindowFunnel<AggregateFunctionWindowFunnelData, AggregateFunctionWindowFunnel>, AggregateFunctionFactory::CaseInsensitive);
+    factory.registerFunction("windowFunnelNonNull", createAggregateFunctionWindowFunnel<AggregateFunctionWindowFunnelData, AggregateFunctionWindowFunnelNonNull>, AggregateFunctionFactory::CaseInsensitive);
 }
 
 }
