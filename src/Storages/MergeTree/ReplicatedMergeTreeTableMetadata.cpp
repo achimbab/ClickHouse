@@ -210,6 +210,15 @@ void ReplicatedMergeTreeTableMetadata::checkImmutableFieldsEquals(const Replicat
 
 }
 
+inline bool caseInsCharCompareN(char a, char b) {
+    return (toupper(a) == toupper(b));
+}
+
+bool caseInsCompare(const String& s1, const String& s2) {
+    return ((s1.size() == s2.size()) &&
+            equal(s1.begin(), s1.end(), s2.begin(), caseInsCharCompareN));
+}
+
 void ReplicatedMergeTreeTableMetadata::checkEquals(const ReplicatedMergeTreeTableMetadata & from_zk) const
 {
 
@@ -232,7 +241,7 @@ void ReplicatedMergeTreeTableMetadata::checkEquals(const ReplicatedMergeTreeTabl
                 ErrorCodes::METADATA_MISMATCH);
     }
 
-    if (skip_indices != from_zk.skip_indices)
+    if (!caseInsCompare(skip_indices, from_zk.skip_indices))
     {
         throw Exception(
                 "Existing table metadata in ZooKeeper differs in skip indexes."
@@ -277,7 +286,7 @@ ReplicatedMergeTreeTableMetadata::checkAndFindDiff(const ReplicatedMergeTreeTabl
         diff.new_ttl_table = from_zk.ttl_table;
     }
 
-    if (skip_indices != from_zk.skip_indices)
+    if (!caseInsCompare(skip_indices, from_zk.skip_indices))
     {
         diff.skip_indices_changed = true;
         diff.new_skip_indices = from_zk.skip_indices;
