@@ -310,6 +310,7 @@ add_subdirectory (fmtlib-cmake)
 if (USE_STATS)
     add_subdirectory (stats-cmake)
     add_subdirectory (gcem)
+    add_subdirectory (eigen)
 endif()
 
 if (USE_KRB5)

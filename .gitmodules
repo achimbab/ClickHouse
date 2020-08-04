@@ -186,3 +186,6 @@
 [submodule "contrib/cyrus-sasl"]
 	path = contrib/cyrus-sasl
 	url = https://github.com/cyrusimap/cyrus-sasl
+[submodule "contrib/eigen"]
+	path = contrib/eigen
+	url = https://gitlab.com/libeigen/eigen.git
