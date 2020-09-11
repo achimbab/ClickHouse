@@ -168,3 +168,12 @@
 [submodule "contrib/fmtlib"]
 	path = contrib/fmtlib
 	url = https://github.com/fmtlib/fmt.git
+[submodule "contrib/eigen"]
+	path = contrib/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "contrib/gcem"]
+	path = contrib/gcem
+	url = https://github.com/kthohr/gcem.git
+[submodule "contrib/stats"]
+	path = contrib/stats
+	url = https://github.com/kthohr/stats.git
