@@ -1193,7 +1193,8 @@ protected:
         Table & data,
         MutableColumns & key_columns,
         MutableColumns & final_aggregate_columns,
-        Arena * arena) const;
+        Arena * arena,
+        bool writeKey) const;
 
     template <typename Method, typename Table>
     void convertToBlockImplNotFinal(
