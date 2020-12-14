@@ -35,6 +35,7 @@ struct AvgFraction
     /// Invoked only is either Numerator or Denominator are Decimal.
     Float64 NO_SANITIZE_UNDEFINED divideIfAnyDecimal(UInt32 num_scale, UInt32 denom_scale) const
     {
+        denom_scale = denom_scale;
         if constexpr (IsDecimalNumber<Numerator> && IsDecimalNumber<Denominator>)
         {
             // According to the docs, num(S1) / denom(S2) would have scale S1
