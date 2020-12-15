@@ -842,10 +842,11 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
               *  but there is an ORDER or LIMIT,
               *  then we will perform the preliminary sorting and LIMIT on the remote server.
               */
-            if (!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving())
+            // TODO
+            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) || (expressions.need_aggregate && settings.force_limit_pushdown))
             {
                 if (expressions.has_order_by)
-                    executeOrder(query_plan, query_info.input_order_info);
+                    executeOrder(query_plan, query_info.input_order_info, true);
 
                 if (expressions.has_order_by && query.limitLength())
                     executeDistinct(query_plan, false, expressions.selected_columns, true);
@@ -1765,11 +1766,24 @@ void InterpreterSelectQuery::executeOrderOptimized(QueryPlan & query_plan, Input
     query_plan.addStep(std::move(finish_sorting_step));
 }
 
-void InterpreterSelectQuery::executeOrder(QueryPlan & query_plan, InputOrderInfoPtr input_sorting_info)
+// TODO
+void InterpreterSelectQuery::executeOrder(QueryPlan & query_plan, InputOrderInfoPtr input_sorting_info, bool first_stage)
 {
     auto & query = getSelectQuery();
     SortDescription output_order_descr = getSortDescription(query, *context);
     UInt64 limit = getLimitForSorting(query, *context);
+
+    // TODO
+    if (first_stage)
+    {
+        for (auto & descr : output_order_descr)
+        {
+            if (descr.column_name == "uniq(no)")
+            {
+                descr.column_name += "_final";
+            }
+        }
+    }
 
     if (input_sorting_info)
     {
