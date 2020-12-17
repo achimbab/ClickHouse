@@ -120,7 +120,7 @@ private:
     void executeTotalsAndHaving(QueryPlan & query_plan, bool has_having, const ActionsDAGPtr & expression, bool overflow_row, bool final);
     void executeHaving(QueryPlan & query_plan, const ActionsDAGPtr & expression);
     static void executeExpression(QueryPlan & query_plan, const ActionsDAGPtr & expression, const std::string & description);
-    void executeOrder(QueryPlan & query_plan, InputOrderInfoPtr sorting_info, bool first_stage = false);
+    void executeOrder(QueryPlan & query_plan, InputOrderInfoPtr sorting_info);
     void executeOrderOptimized(QueryPlan & query_plan, InputOrderInfoPtr sorting_info, UInt64 limit, SortDescription & output_order_descr);
     void executeWithFill(QueryPlan & query_plan);
     void executeMergeSorted(QueryPlan & query_plan, const std::string & description);

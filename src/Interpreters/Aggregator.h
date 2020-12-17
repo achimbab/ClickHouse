@@ -1186,14 +1186,19 @@ protected:
         MutableColumns & final_aggregate_columns,
         Arena * arena) const;
 
+    template <typename Mapped>
+    void insertAggregatesIntoColumnsPreliminary(
+        Mapped & mapped,
+        MutableColumns & final_aggregate_columns,
+        Arena * arena) const;
+
     template <typename Method, typename Table>
     void convertToBlockImplFinal(
         Method & method,
         Table & data,
         MutableColumns & key_columns,
         MutableColumns & final_aggregate_columns,
-        Arena * arena,
-        bool writeKey) const;
+        Arena * arena) const;
 
     template <typename Method, typename Table>
     void convertToBlockImplNotFinal(
@@ -1201,6 +1206,13 @@ protected:
         Table & data,
         MutableColumns & key_columns,
         AggregateColumnsData & aggregate_columns) const;
+
+    template <typename Method, typename Table>
+    void convertToBlockImplPreliminaryFinal(
+        Table & data,
+        MutableColumns & key_columns,
+        MutableColumns & final_aggregate_columns,
+        Arena * arena) const;
 
     template <typename Filler>
     Block prepareBlockAndFill(

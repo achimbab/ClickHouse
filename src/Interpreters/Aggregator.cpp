@@ -149,10 +149,10 @@ Block Aggregator::Params::getHeader(
             res.insert({ type, aggregate.column_name });
 
             // TODO
-            if (!final)
+            if (aggregate.limit_pushdown && aggregate.is_sorting_key)
             {
                 type = aggregate.function->getReturnType();
-                res.insert({ type, aggregate.column_name + "_final" });
+                res.insert({ type, aggregate.sorting_column_name });
             }
         }
     }
@@ -1101,16 +1101,12 @@ void Aggregator::convertToBlockImpl(
         throw Exception{"Aggregate. Unexpected key columns size.", ErrorCodes::LOGICAL_ERROR};
 
     if (final)
-    {
-        // TODO
-        convertToBlockImplFinal(method, data, key_columns, final_aggregate_columns, arena, true);
-    }
+        convertToBlockImplFinal(method, data, key_columns, final_aggregate_columns, arena);
     else
     {
-        convertToBlockImplNotFinal(method, data, key_columns, aggregate_columns);
-
         // TODO
-        convertToBlockImplFinal(method, data, key_columns, final_aggregate_columns, arena, false);
+        convertToBlockImplPreliminaryFinal<Method, Table>(data, key_columns, final_aggregate_columns, arena);
+        convertToBlockImplNotFinal(method, data, key_columns, aggregate_columns);
     }
 
     /// In order to release memory early.
@@ -1152,10 +1148,8 @@ inline void Aggregator::insertAggregatesIntoColumns(
         /// Insert final values of aggregate functions into columns.
         for (; insert_i < params.aggregates_size; ++insert_i)
         {
-            auto f = aggregate_functions[insert_i];
-            auto p = mapped + offsets_of_aggregate_states[insert_i];
-            f->insertResultInto(
-                p,
+            aggregate_functions[insert_i]->insertResultInto(
+                mapped + offsets_of_aggregate_states[insert_i],
                 *final_aggregate_columns[insert_i],
                 arena);
         }
@@ -1174,18 +1168,49 @@ inline void Aggregator::insertAggregatesIntoColumns(
         * But it's only for states that has been transferred to ColumnAggregateFunction
         *  before exception has been thrown;
         */
-    // TODO
-    //for (size_t destroy_i = 0; destroy_i < params.aggregates_size; ++destroy_i)
-    //{
-    //    /// If ownership was not transferred to ColumnAggregateFunction.
-    //    if (!(destroy_i < insert_i && aggregate_functions[destroy_i]->isState()))
-    //        aggregate_functions[destroy_i]->destroy(
-    //            mapped + offsets_of_aggregate_states[destroy_i]);
-    //}
+    for (size_t destroy_i = 0; destroy_i < params.aggregates_size; ++destroy_i)
+    {
+        /// If ownership was not transferred to ColumnAggregateFunction.
+        if (!(destroy_i < insert_i && aggregate_functions[destroy_i]->isState()))
+            aggregate_functions[destroy_i]->destroy(
+                mapped + offsets_of_aggregate_states[destroy_i]);
+    }
 
     /// Mark the cell as destroyed so it will not be destroyed in destructor.
-    // TODO
-    //mapped = nullptr;
+    mapped = nullptr;
+
+    if (exception)
+        std::rethrow_exception(exception);
+}
+
+
+template <typename Mapped>
+inline void Aggregator::insertAggregatesIntoColumnsPreliminary(
+    Mapped & mapped,
+    MutableColumns & final_aggregate_columns,
+    Arena * arena) const
+{
+    size_t insert_i = 0;
+    std::exception_ptr exception;
+
+    try
+    {
+        for (; insert_i < params.aggregates_size; ++insert_i)
+        {
+            if (params.aggregates[insert_i].is_sorting_key && 
+                params.aggregates[insert_i].limit_pushdown)
+            {
+                aggregate_functions[insert_i]->insertResultInto(
+                    mapped + offsets_of_aggregate_states[insert_i],
+                    *final_aggregate_columns[insert_i],
+                    arena);
+            }
+        }
+    }
+    catch (...)
+    {
+        exception = std::current_exception();
+    }
 
     if (exception)
         std::rethrow_exception(exception);
@@ -1198,8 +1223,7 @@ void NO_INLINE Aggregator::convertToBlockImplFinal(
     Table & data,
     MutableColumns & key_columns,
     MutableColumns & final_aggregate_columns,
-    Arena * arena,
-    bool writeKey) const
+    Arena * arena) const
 {
     if constexpr (Method::low_cardinality_optimization)
     {
@@ -1212,11 +1236,31 @@ void NO_INLINE Aggregator::convertToBlockImplFinal(
 
     data.forEachValue([&](const auto & key, auto & mapped)
     {
-        // TODO
-        if (writeKey)
-            method.insertKeyIntoColumns(key, key_columns, key_sizes);
-
+        method.insertKeyIntoColumns(key, key_columns, key_sizes);
         insertAggregatesIntoColumns(mapped, final_aggregate_columns, arena);
+    });
+}
+
+// TODO
+template <typename Method, typename Table>
+void NO_INLINE Aggregator::convertToBlockImplPreliminaryFinal(
+    Table & data,
+    MutableColumns & key_columns,
+    MutableColumns & final_aggregate_columns,
+    Arena * arena) const
+{
+    if constexpr (Method::low_cardinality_optimization)
+    {
+        if (data.hasNullKeyData())
+        {
+            key_columns[0]->insertDefault();
+            insertAggregatesIntoColumnsPreliminary(data.getNullKeyData(), final_aggregate_columns, arena);
+        }
+    }
+
+    data.forEachValue([&](const auto &, auto & mapped)
+    {
+        insertAggregatesIntoColumnsPreliminary(mapped, final_aggregate_columns, arena);
     });
 }
 
@@ -1248,8 +1292,7 @@ void NO_INLINE Aggregator::convertToBlockImplNotFinal(
         for (size_t i = 0; i < params.aggregates_size; ++i)
             aggregate_columns[i]->push_back(mapped + offsets_of_aggregate_states[i]);
 
-        // TODO
-        //mapped = nullptr;
+        mapped = nullptr;
     });
 }
 
@@ -1290,9 +1333,12 @@ Block Aggregator::prepareBlockAndFill(
             aggregate_columns_data[i] = &column_aggregate_func.getData();
             aggregate_columns_data[i]->reserve(rows);
 
-			// TODO
-            final_aggregate_columns[i] = aggregate_functions[i]->getReturnType()->createColumn();
-            final_aggregate_columns[i]->reserve(rows);
+            // TODO
+            if (params.aggregates[i].is_sorting_key && params.aggregates[i].limit_pushdown)
+            {
+                final_aggregate_columns[i] = aggregate_functions[i]->getReturnType()->createColumn();
+                final_aggregate_columns[i]->reserve(rows);
+            }
         }
         else
         {
@@ -1339,44 +1385,16 @@ Block Aggregator::prepareBlockAndFill(
         if (isColumnConst(*res.getByPosition(i).column))
             res.getByPosition(i).column = res.getByPosition(i).column->cut(0, rows);
 
-    // TODO
     if (!final)
     {
-
-		for (size_t i = 0; i < params.aggregates_size; ++i)                                                                       
-		{                                                                                                                         
-			const auto & aggregate_final_column_name = params.aggregates[i].column_name + "_final";                               
-            res.getByName(aggregate_final_column_name).column = std::move(final_aggregate_columns[i]);
-
-			auto writeData = [](const IDataType & type, const ColumnPtr & column, WriteBuffer & ostr, UInt64 offset, UInt64 limit)
-			{
-				/** If there are columns-constants - then we materialize them.                                                    
-				 * (Since the data type does not know how to serialize / deserialize constants.)                                  
-				 */                                                                                                               
-				ColumnPtr full_column = column->convertToFullColumnIfConst();
-
-				IDataType::SerializeBinaryBulkSettings settings;
-				settings.getter = [&ostr](IDataType::SubstreamPath) -> WriteBuffer * { return &ostr; };
-				settings.position_independent_encoding = false;
-				settings.low_cardinality_max_dictionary_size = 0;
-
-				IDataType::SerializeBinaryBulkStatePtr state;
-				type.serializeBinaryBulkStatePrefix(settings, state);
-				type.serializeBinaryBulkWithMultipleStreams(*full_column, offset, limit, settings, state);
-				type.serializeBinaryBulkStateSuffix(settings, state);
-			};
-
-			std::stringstream s;
-			DB::WriteBufferFromOStream ostr(s);
-
-			writeData(
-					*res.getByName(aggregate_final_column_name).type,
-					res.getByName(aggregate_final_column_name).column,
-					ostr, 0, 0
-					);
-
-            auto ss = s.str();
-            LOG_ERROR(log, "__TEST__ final_value: {}", ss);
+        for (size_t i = 0; i < params.aggregates_size; ++i)
+        {
+            // TODO
+            if (params.aggregates[i].limit_pushdown && params.aggregates[i].is_sorting_key)
+            {
+                const auto & aggregate_final_column_name = params.aggregates[i].sorting_column_name;
+                res.getByName(aggregate_final_column_name).column = std::move(final_aggregate_columns[i]);
+            }
         }
     }
 

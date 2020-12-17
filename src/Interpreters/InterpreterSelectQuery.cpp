@@ -97,7 +97,6 @@ namespace ErrorCodes
     extern const int NOT_IMPLEMENTED;
     extern const int PARAMETER_OUT_OF_BOUND;
     extern const int INVALID_LIMIT_EXPRESSION;
-    extern const int INVALID_WITH_FILL_EXPRESSION;
 }
 
 /// Assumes `storage` is set and the table filter (row-level security) is not empty.
@@ -569,100 +568,6 @@ Block InterpreterSelectQuery::getSampleBlockImpl()
     return analysis_result.final_projection->getResultColumns();
 }
 
-static Field getWithFillFieldValue(const ASTPtr & node, const Context & context)
-{
-    const auto & [field, type] = evaluateConstantExpression(node, context);
-
-    if (!isColumnedAsNumber(type))
-        throw Exception("Illegal type " + type->getName() + " of WITH FILL expression, must be numeric type", ErrorCodes::INVALID_WITH_FILL_EXPRESSION);
-
-    return field;
-}
-
-static FillColumnDescription getWithFillDescription(const ASTOrderByElement & order_by_elem, const Context & context)
-{
-    FillColumnDescription descr;
-    if (order_by_elem.fill_from)
-        descr.fill_from = getWithFillFieldValue(order_by_elem.fill_from, context);
-    if (order_by_elem.fill_to)
-        descr.fill_to = getWithFillFieldValue(order_by_elem.fill_to, context);
-    if (order_by_elem.fill_step)
-        descr.fill_step = getWithFillFieldValue(order_by_elem.fill_step, context);
-    else
-        descr.fill_step = order_by_elem.direction;
-
-    if (applyVisitor(FieldVisitorAccurateEquals(), descr.fill_step, Field{0}))
-        throw Exception("WITH FILL STEP value cannot be zero", ErrorCodes::INVALID_WITH_FILL_EXPRESSION);
-
-    if (order_by_elem.direction == 1)
-    {
-        if (applyVisitor(FieldVisitorAccurateLess(), descr.fill_step, Field{0}))
-            throw Exception("WITH FILL STEP value cannot be negative for sorting in ascending direction",
-                ErrorCodes::INVALID_WITH_FILL_EXPRESSION);
-
-        if (!descr.fill_from.isNull() && !descr.fill_to.isNull() &&
-            applyVisitor(FieldVisitorAccurateLess(), descr.fill_to, descr.fill_from))
-        {
-            throw Exception("WITH FILL TO value cannot be less than FROM value for sorting in ascending direction",
-                ErrorCodes::INVALID_WITH_FILL_EXPRESSION);
-        }
-    }
-    else
-    {
-        if (applyVisitor(FieldVisitorAccurateLess(), Field{0}, descr.fill_step))
-            throw Exception("WITH FILL STEP value cannot be positive for sorting in descending direction",
-                ErrorCodes::INVALID_WITH_FILL_EXPRESSION);
-
-        if (!descr.fill_from.isNull() && !descr.fill_to.isNull() &&
-            applyVisitor(FieldVisitorAccurateLess(), descr.fill_from, descr.fill_to))
-        {
-            throw Exception("WITH FILL FROM value cannot be less than TO value for sorting in descending direction",
-                ErrorCodes::INVALID_WITH_FILL_EXPRESSION);
-        }
-    }
-
-    return descr;
-}
-
-static SortDescription getSortDescription(const ASTSelectQuery & query, const Context & context)
-{
-    SortDescription order_descr;
-    order_descr.reserve(query.orderBy()->children.size());
-    for (const auto & elem : query.orderBy()->children)
-    {
-        String name = elem->children.front()->getColumnName();
-        const auto & order_by_elem = elem->as<ASTOrderByElement &>();
-
-        std::shared_ptr<Collator> collator;
-        if (order_by_elem.collation)
-            collator = std::make_shared<Collator>(order_by_elem.collation->as<ASTLiteral &>().value.get<String>());
-
-        if (order_by_elem.with_fill)
-        {
-            FillColumnDescription fill_desc = getWithFillDescription(order_by_elem, context);
-            order_descr.emplace_back(name, order_by_elem.direction,
-                order_by_elem.nulls_direction, collator, true, fill_desc);
-        }
-        else
-            order_descr.emplace_back(name, order_by_elem.direction, order_by_elem.nulls_direction, collator);
-    }
-
-    return order_descr;
-}
-
-static SortDescription getSortDescriptionFromGroupBy(const ASTSelectQuery & query)
-{
-    SortDescription order_descr;
-    order_descr.reserve(query.groupBy()->children.size());
-
-    for (const auto & elem : query.groupBy()->children)
-    {
-        String name = elem->getColumnName();
-        order_descr.emplace_back(name, 1, 1);
-    }
-
-    return order_descr;
-}
 
 static UInt64 getLimitUIntValue(const ASTPtr & node, const Context & context, const std::string & expr)
 {
@@ -843,10 +748,10 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
               *  then we will perform the preliminary sorting and LIMIT on the remote server.
               */
             // TODO
-            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) || (expressions.need_aggregate && settings.force_limit_pushdown))
+            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) || (expressions.need_aggregate && settings.enable_limit_pushdown))
             {
                 if (expressions.has_order_by)
-                    executeOrder(query_plan, query_info.input_order_info, true);
+                    executeOrder(query_plan, query_info.input_order_info);
 
                 if (expressions.has_order_by && query.limitLength())
                     executeDistinct(query_plan, false, expressions.selected_columns, true);
@@ -1767,20 +1672,22 @@ void InterpreterSelectQuery::executeOrderOptimized(QueryPlan & query_plan, Input
 }
 
 // TODO
-void InterpreterSelectQuery::executeOrder(QueryPlan & query_plan, InputOrderInfoPtr input_sorting_info, bool first_stage)
+void InterpreterSelectQuery::executeOrder(QueryPlan & query_plan, InputOrderInfoPtr input_sorting_info)
 {
     auto & query = getSelectQuery();
     SortDescription output_order_descr = getSortDescription(query, *context);
     UInt64 limit = getLimitForSorting(query, *context);
 
     // TODO
-    if (first_stage)
+    if (analysis_result.limit_pushdown)
     {
         for (auto & descr : output_order_descr)
         {
-            if (descr.column_name == "uniq(no)")
+            auto agg = std::find_if(query_analyzer->aggregates().begin(), query_analyzer->aggregates().end(), 
+                [&descr](auto & agg_descr) { return agg_descr.column_name == descr.column_name; });
+            if (agg != query_analyzer->aggregates().end())
             {
-                descr.column_name += "_final";
+                descr.column_name = agg->sorting_column_name;
             }
         }
     }

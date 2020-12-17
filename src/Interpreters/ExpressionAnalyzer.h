@@ -43,6 +43,9 @@ using ActionsDAGPtr = std::shared_ptr<ActionsDAG>;
 /// Create columns in block or return false if not possible
 bool sanitizeBlock(Block & block, bool throw_if_cannot_create_column = false);
 
+SortDescription getSortDescription(const ASTSelectQuery & query, const Context & context);
+SortDescription getSortDescriptionFromGroupBy(const ASTSelectQuery & query);
+
 /// ExpressionAnalyzer sources, intermediates and results. It splits data and logic, allows to test them separately.
 struct ExpressionAnalyzerData
 {
@@ -181,6 +184,7 @@ struct ExpressionAnalysisResult
     bool optimize_read_in_order = false;
     bool optimize_aggregation_in_order = false;
     bool join_has_delayed_stream = false;
+    bool limit_pushdown = false;
 
     ActionsDAGPtr before_array_join;
     ArrayJoinActionPtr array_join;
@@ -268,6 +272,8 @@ public:
     const TemporaryTablesMapping & getExternalTables() const { return external_tables; }
 
     ActionsDAGPtr simpleSelectActions();
+
+    void setLimitPushdown();
 
     /// These appends are public only for tests
     void appendSelect(ExpressionActionsChain & chain, bool only_types);
