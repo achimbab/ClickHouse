@@ -178,7 +178,11 @@ static FillColumnDescription getWithFillDescription(const ASTOrderByElement & or
 SortDescription getSortDescription(const ASTSelectQuery & query, const Context & context)
 {
     SortDescription order_descr;
-    order_descr.reserve(query.orderBy()->children.size());
+    auto order_by = query.orderBy();
+    if (!order_by)
+        return SortDescription{};
+
+    order_descr.reserve(order_by->children.size());
     for (const auto & elem : query.orderBy()->children)
     {
         String name = elem->children.front()->getColumnName();
