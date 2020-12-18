@@ -124,7 +124,7 @@ private:
     void executeOrderOptimized(QueryPlan & query_plan, InputOrderInfoPtr sorting_info, UInt64 limit, SortDescription & output_order_descr);
     void executeWithFill(QueryPlan & query_plan);
     void executeMergeSorted(QueryPlan & query_plan, const std::string & description);
-    void executePreLimit(QueryPlan & query_plan, bool do_not_skip_offset);
+    void executePreLimit(QueryPlan & query_plan, bool do_not_skip_offset, bool limit_pushdown);
     void executeLimitBy(QueryPlan & query_plan);
     void executeLimit(QueryPlan & query_plan);
     void executeOffset(QueryPlan & query_plan);

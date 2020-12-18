@@ -742,19 +742,19 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
 
         auto preliminary_sort = [&]()
         {
+            bool limit_pushdown = !aggregate_final && settings.enable_limit_pushdown;
             /** For distributed query processing,
               *  if no GROUP, HAVING set,
               *  but there is an ORDER or LIMIT,
               *  then we will perform the preliminary sorting and LIMIT on the remote server.
               *
-              * When limit_pushdown is set, aggregation-columns used by sorting has already been finalized. It enables preliminary sorting for aggregation-columns.
-              *  To achieve limit_pushdown the results are preliminary sorted and limited.
+              * When limit_pushdown is set, aggregation-columns used by sorting has already been finalized.
+              *  In order to achieve limit_pushdown, the results must be sorted and limited.
               */
-            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) ||
-                (!aggregate_final && settings.enable_limit_pushdown))
+            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) || limit_pushdown)
             {
                 if (expressions.has_order_by)
-                    executeOrder(query_plan, query_info.input_order_info, !aggregate_final && settings.enable_limit_pushdown);
+                    executeOrder(query_plan, query_info.input_order_info, limit_pushdown);
 
                 if (expressions.has_order_by && query.limitLength())
                     executeDistinct(query_plan, false, expressions.selected_columns, true);
@@ -766,7 +766,7 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
                 }
 
                 if (query.limitLength())
-                    executePreLimit(query_plan, true);
+                    executePreLimit(query_plan, true, limit_pushdown);
             }
         };
 
@@ -940,7 +940,7 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
                 query.limitLength() && !query.limit_with_ties && !hasWithTotalsInAnySubqueryInFromClause(query) &&
                 !query.arrayJoinExpressionList() && !query.distinct && !expressions.hasLimitBy() && !settings.extremes)
             {
-                executePreLimit(query_plan, false);
+                executePreLimit(query_plan, false, false);
                 has_prelimit = true;
             }
 
@@ -1696,6 +1696,8 @@ void InterpreterSelectQuery::executeOrder(QueryPlan & query_plan, InputOrderInfo
                 descr.column_name = aggregate->sorting_column_name;
             }
         }
+
+        limit *= context->getSettingsRef().limit_pushdown_fetch_multiplier;
     }
 
     if (input_sorting_info)
@@ -1798,13 +1800,16 @@ void InterpreterSelectQuery::executeDistinct(QueryPlan & query_plan, bool before
 
 
 /// Preliminary LIMIT - is used in every source, if there are several sources, before they are combined.
-void InterpreterSelectQuery::executePreLimit(QueryPlan & query_plan, bool do_not_skip_offset)
+void InterpreterSelectQuery::executePreLimit(QueryPlan & query_plan, bool do_not_skip_offset, bool limit_pushdown)
 {
     auto & query = getSelectQuery();
     /// If there is LIMIT
     if (query.limitLength())
     {
         auto [limit_length, limit_offset] = getLimitLengthAndOffset(query, *context);
+
+        if (limit_pushdown)
+            limit_length *= context->getSettingsRef().limit_pushdown_fetch_multiplier;
 
         if (do_not_skip_offset)
         {
