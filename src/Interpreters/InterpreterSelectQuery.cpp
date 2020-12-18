@@ -748,7 +748,8 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
               *  then we will perform the preliminary sorting and LIMIT on the remote server.
               */
             // TODO
-            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) || (expressions.need_aggregate && settings.enable_limit_pushdown))
+            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) || 
+                (expressions.limit_pushdown))
             {
                 if (expressions.has_order_by)
                     executeOrder(query_plan, query_info.input_order_info);
