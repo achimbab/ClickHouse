@@ -746,13 +746,15 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
               *  if no GROUP, HAVING set,
               *  but there is an ORDER or LIMIT,
               *  then we will perform the preliminary sorting and LIMIT on the remote server.
+              *
+              * When limit_pushdown is set, aggregation-columns used by sorting has already been finalized. It enables preliminary sorting for aggregation-columns.
+              *  To achieve limit_pushdown the results are preliminary sorted and limited.
               */
-            // TODO
-            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) || 
-                (expressions.limit_pushdown))
+            if ((!expressions.second_stage && !expressions.need_aggregate && !expressions.hasHaving()) ||
+                (!aggregate_final && settings.enable_limit_pushdown))
             {
                 if (expressions.has_order_by)
-                    executeOrder(query_plan, query_info.input_order_info);
+                    executeOrder(query_plan, query_info.input_order_info, !aggregate_final && settings.enable_limit_pushdown);
 
                 if (expressions.has_order_by && query.limitLength())
                     executeDistinct(query_plan, false, expressions.selected_columns, true);
@@ -927,7 +929,7 @@ void InterpreterSelectQuery::executeImpl(QueryPlan & query_plan, const BlockInpu
                 if (!expressions.first_stage && !expressions.need_aggregate && !(query.group_by_with_totals && !aggregate_final))
                     executeMergeSorted(query_plan, "for ORDER BY");
                 else    /// Otherwise, just sort.
-                    executeOrder(query_plan, query_info.input_order_info);
+                    executeOrder(query_plan, query_info.input_order_info, false);
             }
 
             /** Optimization - if there are several sources and there is LIMIT, then first apply the preliminary LIMIT,
@@ -1526,7 +1528,8 @@ void InterpreterSelectQuery::executeAggregation(QueryPlan & query_plan, const Ac
                               settings.empty_result_for_aggregation_by_empty_set,
                               context->getTemporaryVolume(),
                               settings.max_threads,
-                              settings.min_free_disk_space_for_temporary_data);
+                              settings.min_free_disk_space_for_temporary_data,
+                              settings.enable_limit_pushdown);
 
     SortDescription group_by_sort_description;
 
@@ -1635,7 +1638,8 @@ void InterpreterSelectQuery::executeRollupOrCube(QueryPlan & query_plan, Modific
     Aggregator::Params params(header_before_transform, keys, query_analyzer->aggregates(),
                               false, settings.max_rows_to_group_by, settings.group_by_overflow_mode, 0, 0,
                               settings.max_bytes_before_external_group_by, settings.empty_result_for_aggregation_by_empty_set,
-                              context->getTemporaryVolume(), settings.max_threads, settings.min_free_disk_space_for_temporary_data);
+                              context->getTemporaryVolume(), settings.max_threads, settings.min_free_disk_space_for_temporary_data,
+                              settings.enable_limit_pushdown);
 
     auto transform_params = std::make_shared<AggregatingTransformParams>(params, true);
 
@@ -1672,23 +1676,24 @@ void InterpreterSelectQuery::executeOrderOptimized(QueryPlan & query_plan, Input
     query_plan.addStep(std::move(finish_sorting_step));
 }
 
-// TODO
-void InterpreterSelectQuery::executeOrder(QueryPlan & query_plan, InputOrderInfoPtr input_sorting_info)
+void InterpreterSelectQuery::executeOrder(QueryPlan & query_plan, InputOrderInfoPtr input_sorting_info, bool limit_pushdown)
 {
     auto & query = getSelectQuery();
     SortDescription output_order_descr = getSortDescription(query, *context);
     UInt64 limit = getLimitForSorting(query, *context);
 
-    // TODO
-    if (analysis_result.limit_pushdown)
+    /** In this step for limit_pushdown, aggregation columns hasn't been finalized.
+      * So that names of columns are replaced with sorting_column_names that temporarily has been finalized.
+      */
+    if (limit_pushdown)
     {
         for (auto & descr : output_order_descr)
         {
-            auto agg = std::find_if(query_analyzer->aggregates().begin(), query_analyzer->aggregates().end(), 
+            auto aggregate = std::find_if(query_analyzer->aggregates().begin(), query_analyzer->aggregates().end(),
                 [&descr](auto & agg_descr) { return agg_descr.column_name == descr.column_name; });
-            if (agg != query_analyzer->aggregates().end())
+            if (aggregate != query_analyzer->aggregates().end())
             {
-                descr.column_name = agg->sorting_column_name;
+                descr.column_name = aggregate->sorting_column_name;
             }
         }
     }

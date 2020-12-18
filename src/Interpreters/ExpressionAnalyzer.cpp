@@ -769,14 +769,6 @@ JoinPtr SelectQueryExpressionAnalyzer::makeTableJoin(const ASTTablesInSelectQuer
     return subquery_for_join.join;
 }
 
-void SelectQueryExpressionAnalyzer::setLimitPushdown()
-{
-    for (auto & descr : aggregate_descriptions)
-    {
-        descr.limit_pushdown = true;
-    }
-}
-
 ActionsDAGPtr SelectQueryExpressionAnalyzer::appendPrewhere(
     ExpressionActionsChain & chain, bool only_types, const Names & additional_required_columns)
 {
@@ -1361,13 +1353,6 @@ ExpressionAnalysisResult::ExpressionAnalysisResult(
                 only_types || (need_aggregate ? !second_stage : !first_stage),
                 optimize_read_in_order,
                 order_by_elements_actions);
-
-        // TODO
-        if (first_stage && !second_stage && settings.enable_limit_pushdown)
-        {
-            limit_pushdown = true;
-            query_analyzer.setLimitPushdown();
-        }
 
         if (query_analyzer.appendLimitBy(chain, only_types || !second_stage))
         {

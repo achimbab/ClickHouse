@@ -109,7 +109,8 @@ Block Aggregator::Params::getHeader(
     const Block & intermediate_header,
     const ColumnNumbers & keys,
     const AggregateDescriptions & aggregates,
-    bool final)
+    bool final,
+    bool enable_limit_pushdown)
 {
     Block res;
 
@@ -148,8 +149,7 @@ Block Aggregator::Params::getHeader(
 
             res.insert({ type, aggregate.column_name });
 
-            // TODO
-            if (aggregate.limit_pushdown && aggregate.is_sorting_key)
+            if (!final && enable_limit_pushdown && aggregate.is_sorting_key)
             {
                 type = aggregate.function->getReturnType();
                 res.insert({ type, aggregate.sorting_column_name });
@@ -1104,7 +1104,6 @@ void Aggregator::convertToBlockImpl(
         convertToBlockImplFinal(method, data, key_columns, final_aggregate_columns, arena);
     else
     {
-        // TODO
         convertToBlockImplPreliminaryFinal<Method, Table>(data, key_columns, final_aggregate_columns, arena);
         convertToBlockImplNotFinal(method, data, key_columns, aggregate_columns);
     }
@@ -1197,8 +1196,7 @@ inline void Aggregator::insertAggregatesIntoColumnsPreliminary(
     {
         for (; insert_i < params.aggregates_size; ++insert_i)
         {
-            if (params.aggregates[insert_i].is_sorting_key && 
-                params.aggregates[insert_i].limit_pushdown)
+            if (params.enable_limit_pushdown && params.aggregates[insert_i].is_sorting_key)
             {
                 aggregate_functions[insert_i]->insertResultInto(
                     mapped + offsets_of_aggregate_states[insert_i],
@@ -1241,7 +1239,9 @@ void NO_INLINE Aggregator::convertToBlockImplFinal(
     });
 }
 
-// TODO
+/**
+  * For limit_pushdown, it preliminary fianzlies aggregation columns used by sorting.
+  */
 template <typename Method, typename Table>
 void NO_INLINE Aggregator::convertToBlockImplPreliminaryFinal(
     Table & data,
@@ -1333,8 +1333,7 @@ Block Aggregator::prepareBlockAndFill(
             aggregate_columns_data[i] = &column_aggregate_func.getData();
             aggregate_columns_data[i]->reserve(rows);
 
-            // TODO
-            if (params.aggregates[i].is_sorting_key && params.aggregates[i].limit_pushdown)
+            if (params.enable_limit_pushdown && params.aggregates[i].is_sorting_key)
             {
                 final_aggregate_columns[i] = aggregate_functions[i]->getReturnType()->createColumn();
                 final_aggregate_columns[i]->reserve(rows);
@@ -1385,18 +1384,11 @@ Block Aggregator::prepareBlockAndFill(
         if (isColumnConst(*res.getByPosition(i).column))
             res.getByPosition(i).column = res.getByPosition(i).column->cut(0, rows);
 
-    if (!final)
-    {
+    /// Outputs preliminary finalized columns for limit pushdown.
+    if (!final && params.enable_limit_pushdown)
         for (size_t i = 0; i < params.aggregates_size; ++i)
-        {
-            // TODO
-            if (params.aggregates[i].limit_pushdown && params.aggregates[i].is_sorting_key)
-            {
-                const auto & aggregate_final_column_name = params.aggregates[i].sorting_column_name;
-                res.getByName(aggregate_final_column_name).column = std::move(final_aggregate_columns[i]);
-            }
-        }
-    }
+            if (params.aggregates[i].is_sorting_key)
+                res.getByName(params.aggregates[i].sorting_column_name).column = std::move(final_aggregate_columns[i]);
 
     return res;
 }
