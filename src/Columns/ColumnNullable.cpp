@@ -26,6 +26,8 @@ ColumnNullable::ColumnNullable(MutableColumnPtr && nested_column_, MutableColumn
 {
     /// ColumnNullable cannot have constant nested column. But constant argument could be passed. Materialize it.
     nested_column = getNestedColumn().convertToFullColumnIfConst();
+    // TODO
+    nested_column->setWrappingColumn(this);
 
     if (!getNestedColumn().canBeInsideNullable())
         throw Exception{getNestedColumn().getName() + " cannot be inside Nullable column", ErrorCodes::ILLEGAL_COLUMN};
@@ -33,7 +35,6 @@ ColumnNullable::ColumnNullable(MutableColumnPtr && nested_column_, MutableColumn
     if (isColumnConst(*null_map))
         throw Exception{"ColumnNullable cannot have constant null map", ErrorCodes::ILLEGAL_COLUMN};
 }
-
 
 void ColumnNullable::updateHashWithValue(size_t n, SipHash & hash) const
 {
@@ -651,7 +652,7 @@ void ColumnNullable::applyNullMap(const ColumnNullable & other)
 void ColumnNullable::checkConsistency() const
 {
     if (null_map->size() != getNestedColumn().size())
-        throw Exception("Logical error: Sizes of nested column and null map of Nullable column are not equal",
+        throw Exception("Logical error: Sizes of nested column '" + std::to_string(null_map->size()) + "' and null map of Nullable column '" + std::to_string(getNestedColumn().size()) + "' are not equal",
             ErrorCodes::SIZES_OF_NESTED_COLUMNS_ARE_INCONSISTENT);
 }
 

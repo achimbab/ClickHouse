@@ -434,6 +434,11 @@ public:
       */
     String dumpStructure() const;
 
+    // TODO
+    virtual IColumn * getWrappingColumn() { return wrapping_column.get(); }
+    void setWrappingColumn(IColumn * column) { wrapping_column = column; }
+    WrappedPtr wrapping_column;
+
 protected:
 
     /// Template is to devirtualize calls to insertFrom method.
