@@ -299,7 +299,7 @@ public:
 
         if (arguments.size() == 6)
         {
-            if (const ColumnConst * col_density = checkAndGetColumnConst<ColumnUInt8>(block.getByPosition(arguments[5]).column.get()))
+            if (const ColumnConst * col_density = checkAndGetColumnConst<ColumnUInt8>(arguments[5].column.get()))
                 include_density = col_density->getBool(0);
             else
                 throw Exception("Sixth argument for function " + getName() + " must be Constatnt boolean", ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT);

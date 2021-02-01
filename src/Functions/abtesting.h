@@ -23,8 +23,8 @@ struct Variant
     Float64 best;
     std::vector<Float64> samples;
 
-    _Variant(const Float64 _x, const Float64 _y) : x(_x), y(_y), beats_control(0.0), best(0.0), samples() {}
-} Variant;
+    Variant(const Float64 _x, const Float64 _y) : x(_x), y(_y), beats_control(0.0), best(0.0), samples() {}
+};
 
 using Variants = PODArray<Variant>;
 
