@@ -36,6 +36,7 @@ void registerAggregateFunctionsMaxIntersections(AggregateFunctionFactory &);
 void registerAggregateFunctionHistogram(AggregateFunctionFactory &);
 void registerAggregateFunctionRetention(AggregateFunctionFactory &);
 void registerAggregateFunctionMLMethod(AggregateFunctionFactory &);
+void registerAggregateFunctionAssocRules(AggregateFunctionFactory &);
 void registerAggregateFunctionEntropy(AggregateFunctionFactory &);
 void registerAggregateFunctionSimpleLinearRegression(AggregateFunctionFactory &);
 void registerAggregateFunctionMoving(AggregateFunctionFactory &);
@@ -96,6 +97,7 @@ void registerAggregateFunctions()
         registerAggregateFunctionHistogram(factory);
         registerAggregateFunctionRetention(factory);
         registerAggregateFunctionMLMethod(factory);
+        registerAggregateFunctionAssocRules(factory);
         registerAggregateFunctionEntropy(factory);
         registerAggregateFunctionSimpleLinearRegression(factory);
         registerAggregateFunctionMoving(factory);
