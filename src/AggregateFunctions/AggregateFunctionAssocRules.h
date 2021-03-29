@@ -75,13 +75,13 @@ struct FPNode
 struct FPTree {
     std::shared_ptr<FPNode> root;
     std::map<Item, std::shared_ptr<FPNode>> header_table;
-    UInt64 minimum_support_threshold;
+    UInt64 minimum_support;
 
     FPTree(const std::vector<Transaction>& transactions, 
-        UInt64 _minimum_support_threshold) :
+        UInt64 _minimum_support) :
         root(std::make_shared<FPNode>(Item{}, nullptr)), 
         header_table(),
-        minimum_support_threshold(_minimum_support_threshold)
+        minimum_support(_minimum_support)
     {
         // scan the transactions counting the frequency of each item
         std::map<Item, UInt64> frequency_by_item;
@@ -94,7 +94,7 @@ struct FPTree {
         // keep only items which have a frequency greater or equal than the minimum support threshold
         for ( auto it = frequency_by_item.cbegin(); it != frequency_by_item.cend(); ) {
             const UInt64 item_frequency = (*it).second;
-            if ( item_frequency < minimum_support_threshold ) { frequency_by_item.erase( it++ ); }
+            if ( item_frequency < minimum_support ) { frequency_by_item.erase( it++ ); }
             else { ++it; }
         }
 
@@ -275,7 +275,7 @@ Patterns fptree_growth(const FPTree& fptree)
             }
 
             // build the conditional fptree relative to the current item with the transactions just generated
-            const FPTree conditional_fptree( conditional_fptree_transactions, fptree.minimum_support_threshold );
+            const FPTree conditional_fptree( conditional_fptree_transactions, fptree.minimum_support );
             // call recursively fptree_growth on the conditional fptree (empty fptree: no patterns)
             Patterns conditional_patterns = fptree_growth( conditional_fptree );
 
@@ -358,10 +358,9 @@ void combinations(std::vector<std::vector<Item>> & result, std::vector<Item> & i
     }
 }
 
-// Get Result
-
 /*
-assoc_rules(  user_tsid -- Transaction ID col
+assoc_rules(min_support)
+           (  user_tsid -- Transaction ID col
             , common_service_code -- Item col
            )
 */
@@ -378,13 +377,14 @@ class AssocRulesImpl final
 
     // TODO
     DataTypePtr & data_type;
-    Float64 min_support;
+    UInt64 minimum_support;
 
 public:
-    AssocRulesImpl(const DataTypePtr & data_type_, [[maybe_unused]] const DataTypes & arguments)
+    AssocRulesImpl(const DataTypePtr & data_type_, [[maybe_unused]] const DataTypes & arguments, const UInt64 _minimum_support)
         : IAggregateFunctionDataHelper<AssocRulesData, AssocRulesImpl>(
             {data_type_}, {})
         , data_type(this->argument_types[0])
+        , minimum_support(_minimum_support)
     {
     }
 
@@ -480,7 +480,7 @@ public:
 
         const UInt64 N = d.tran.size();
 
-        const FPTree fptree{ trans, 0 };
+        const FPTree fptree{ trans, minimum_support };
 
         [[maybe_unused]] const Patterns patterns = fptree_growth(fptree);
 
