@@ -36,8 +36,8 @@ using ItemFrequency = std::map<Item, UInt64>;
 
 struct AssocRulesData
 {
-    ItemFrequency item_freq;
-    Transactions tran;
+    ItemFrequency item_freq; // TODO use it for optimization
+    Transactions tran; // TODO use compressed form for optimization
     // TID -> List of Items
     // Compressed : List of Items -> List of TIDs
     // Item -> Frequency
@@ -323,17 +323,15 @@ struct AssocRuleResult
     Float64 confidence;
     Float64 lift;
     Float64 conviction;
-    Float64 reverage;
+    Float64 leverage;
 };
 
 using AssocRuleResults = std::vector<AssocRuleResult>;
 
-/* arr[] ---> Input Array
-   data[] ---> Temporary array to
-   store current combination
-   start & end ---> Staring and
-   Ending indexes in arr[]
-   index ---> Current index in data[]
+/* input ---> a set of elements
+   data ---> Temporary vector to store current combination
+   start & end ---> Staring and Ending indexes in input
+   index ---> Current index in data
    r ---> Size of a combination to be printed */
 void combinations(std::vector<std::vector<Item>> & result, std::vector<Item> & input, std::vector<Item> data,
         int start, int end,
@@ -412,14 +410,64 @@ public:
 
     void merge([[maybe_unused]] AggregateDataPtr __restrict place, [[maybe_unused]] ConstAggregateDataPtr rhs, [[maybe_unused]] Arena *) const override
     {
+        auto & d = data(place);
+        const auto & other = data(rhs);
+
+        for (auto & kv : other.tran)
+        {
+            auto t = d.tran.find(kv.first);
+            if (t == d.tran.end())
+                d.tran[kv.first] = kv.second;
+            else
+                for (auto & item : kv.second)
+                    t->second.push_back(item);
+        }
     }
 
     void serialize([[maybe_unused]] ConstAggregateDataPtr __restrict place, [[maybe_unused]] WriteBuffer & buf) const override
     {
+        auto & d = data(place);
+
+        // TODO: item_freq
+
+        writeBinary(d.tran.size(), buf);
+        for (auto & kv : d.tran)
+        {
+            writeBinary(kv.first, buf);
+
+            writeBinary(kv.second.size(), buf);
+            for (auto & item : kv.second)
+            {
+                writeVarUInt(item.size(), buf);
+                buf.write(item.c_str(), item.size());
+            }
+        }
     }
 
     void deserialize([[maybe_unused]] AggregateDataPtr __restrict place, [[maybe_unused]] ReadBuffer & buf, [[maybe_unused]] Arena * arena) const override
     {
+        auto & d = data(place);
+
+        size_t tran_size;
+        readBinary(tran_size, buf);
+
+        for (size_t i = 0; i < tran_size; ++i)
+        {
+            UInt64 tran_id;
+            readBinary(tran_id, buf);
+
+            d.tran[tran_id] = {};
+
+            size_t item_size;
+            readBinary(item_size, buf);
+
+            for (size_t item_idx = 0; item_idx < item_size; ++item_idx)
+            {
+                Item item;
+                readStringBinary(item, buf);
+                d.tran[tran_id].push_back(item);
+            }
+        }
     }
 
     void insertResultInto([[maybe_unused]] AggregateDataPtr __restrict place, [[maybe_unused]] IColumn & to, [[maybe_unused]] Arena *) const override
@@ -429,6 +477,8 @@ public:
         std::vector<Transaction> trans;
         std::transform(d.tran.begin(), d.tran.end(), std::back_inserter(trans), 
             [](const auto & kv){ return kv.second; });
+
+        const UInt64 N = d.tran.size();
 
         const FPTree fptree{ trans, 0 };
 
@@ -484,7 +534,8 @@ public:
                     for (auto v : rule.antecedent)
                         aset.first.insert(v);
                     auto it = patterns.find(aset);
-                    rule.sA = it->second;
+                    rule.sA = static_cast<Float64>(it->second);
+                    rule.sA /= N;
                     }
 
                     {
@@ -492,44 +543,51 @@ public:
                     for (auto v : rule.consequent)
                         cset.first.insert(v);
                     auto it = patterns.find(cset);
-                    rule.sC = it->second;
+                    rule.sC = static_cast<Float64>(it->second);
+                    rule.sC /= N;
                     }
 
-                    rule.support = p.second;
+                    rule.support = static_cast<Float64>(p.second);
+                    rule.support /= N;
 
                     rule.confidence = rule.support / rule.sA;
                     rule.lift = std::max(rule.confidence / rule.sC, .0);
-                    rule.conviction = std::max((1 - rule.sA) / (1 - rule.confidence), .0);
-                    rule.reverage = rule.support - (rule.sA * rule.sC);
-                    if (rule.reverage < -1.0)
-                        rule.reverage = -1.0;
-                    else if (rule.reverage > 1.0)
-                        rule.reverage = 1.0;
+                    rule.leverage = rule.support - (rule.sA * rule.sC);
+                    rule.conviction = INFINITY;
+                    if (rule.confidence < 1.0)
+                        rule.conviction = std::max((1 - rule.sC) / (1 - rule.confidence), .0);
+                    if (rule.leverage < -1.0)
+                        rule.leverage = -1.0;
+                    else if (rule.leverage > 1.0)
+                        rule.leverage = 1.0;
 
                     rules.push_back(rule);
                 }
             }
         }
 
+        ss << "antecedents consequents  antecedent support  consequent support  support  confidence  lift  leverage  conviction\n";
         for (auto & rule : rules)
         {
-            ss << "antecedent: ";
+            ss << "(";
             std::copy(rule.antecedent.begin(), rule.antecedent.end(), 
                 std::ostream_iterator<std::string>(ss, ","));
-            ss << " | ";
+            ss.seekp(-1, std::ios_base::end);
+            ss << ")";
 
-            ss << "consequent: ";
+            ss << " (";
             std::copy(rule.consequent.begin(), rule.consequent.end(), 
                 std::ostream_iterator<std::string>(ss, ","));
-            ss << " | ";
+            ss.seekp(-1, std::ios_base::end);
+            ss << ")";
 
-            ss << "sA: " << rule.sA << " | " 
-                << "sC: " << rule.sC << " | " 
-                << "support: " << rule.support << " | "
-                << "confidence: " << rule.confidence << " | "
-                << "lift: " << rule.lift << " | "
-                << "conviction: " << rule.conviction << " | "
-                << "reverage: " << rule.reverage<< std::endl;
+            ss << " " << rule.sA;
+            ss << " " << rule.sC;
+            ss << " " << rule.support;
+            ss << " " << rule.confidence;
+            ss << " " << rule.lift;
+            ss << " " << rule.leverage;
+            ss << " " << rule.conviction << std::endl;
         }
 
         std::string result_str = ss.str();
