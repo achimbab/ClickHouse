@@ -41,6 +41,7 @@ void registerAggregateFunctionMoving(AggregateFunctionFactory &);
 void registerAggregateFunctionCategoricalIV(AggregateFunctionFactory &);
 void registerAggregateFunctionAggThrow(AggregateFunctionFactory &);
 void registerAggregateFunctionRankCorrelation(AggregateFunctionFactory &);
+void registerAggregateFunctionSequenceNextNode(AggregateFunctionFactory &);
 void registerAggregateFunctionMannWhitney(AggregateFunctionFactory &);
 void registerAggregateFunctionWelchTTest(AggregateFunctionFactory &);
 void registerAggregateFunctionStudentTTest(AggregateFunctionFactory &);
@@ -98,6 +99,7 @@ void registerAggregateFunctions()
         registerAggregateFunctionCategoricalIV(factory);
         registerAggregateFunctionAggThrow(factory);
         registerAggregateFunctionRankCorrelation(factory);
+        registerAggregateFunctionsSequenceMatch(factory);
         registerAggregateFunctionMannWhitney(factory);
         registerAggregateFunctionWelchTTest(factory);
         registerAggregateFunctionStudentTTest(factory);
