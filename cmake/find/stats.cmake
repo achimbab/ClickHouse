@@ -12,6 +12,7 @@ if (ENABLE_STATS)
     else()
         set(STATS_INCLUDE_DIR ${ClickHouse_SOURCE_DIR}/contrib/stats/include)
         set(GCEM_INCLUDE_DIR ${ClickHouse_SOURCE_DIR}/contrib/gcem/include)
+        set(EIGEN_INCLUDE_DIR ${ClickHouse_SOURCE_DIR}/contrib/eigen)
         set (USE_STATS 1)
     endif()
 
@@ -22,3 +23,4 @@ endif()
 
 message (STATUS "Using stats=${USE_STATS} : ${STATS_INCLUDE_DIR}")
 message (STATUS "Using gcem=${USE_STATS}: ${GCEM_INCLUDE_DIR}")
+message (STATUS "Using eigen=${USE_STATS}: ${EIGEN_INCLUDE_DIR}")
