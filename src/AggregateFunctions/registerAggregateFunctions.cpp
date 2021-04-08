@@ -99,7 +99,7 @@ void registerAggregateFunctions()
         registerAggregateFunctionCategoricalIV(factory);
         registerAggregateFunctionAggThrow(factory);
         registerAggregateFunctionRankCorrelation(factory);
-        registerAggregateFunctionsSequenceMatch(factory);
+        registerAggregateFunctionSequenceNextNode(factory);
         registerAggregateFunctionMannWhitney(factory);
         registerAggregateFunctionWelchTTest(factory);
         registerAggregateFunctionStudentTTest(factory);
