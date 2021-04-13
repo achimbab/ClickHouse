@@ -1,0 +1,9 @@
+distributed_push_down_limit=1
+40
+40
+distributed_push_down_limit=0
+100
+100
+auto-distributed_push_down_limit
+40
+40
