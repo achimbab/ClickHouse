@@ -106,29 +106,30 @@ AggregateFunctionPtr createAggregateFunctionMinK(const std::string & name, const
 }
 */
 
+template <template <typename, UInt64> class Data>
 AggregateFunctionPtr createAggregateFunctionMinK(const std::string &, const DataTypes & argument_types, const Array &)
 {
     WhichDataType which(argument_types[0]);
     if (which.idx == TypeIndex::UInt8)
-        return std::make_shared<AggregateFunctionMinK<UInt8, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,UInt8, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::UInt16)
-        return std::make_shared<AggregateFunctionMinK<UInt16, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,UInt16, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::UInt32)
-        return std::make_shared<AggregateFunctionMinK<UInt32, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,UInt32, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::UInt64)
-        return std::make_shared<AggregateFunctionMinK<UInt64, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,UInt64, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::Int8)
-        return std::make_shared<AggregateFunctionMinK<Int8, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,Int8, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::Int16)
-        return std::make_shared<AggregateFunctionMinK<Int16, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,Int16, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::Int32)
-        return std::make_shared<AggregateFunctionMinK<Int32, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,Int32, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::Int64)
-        return std::make_shared<AggregateFunctionMinK<Int64, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,Int64, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::Date)
-        return std::make_shared<AggregateFunctionMinK<DataTypeDate::FieldType, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,DataTypeDate::FieldType, 5>>(argument_types[0]);
     else if (which.idx == TypeIndex::DateTime)
-        return std::make_shared<AggregateFunctionMinK<DataTypeDateTime::FieldType, 5>>(argument_types[0]);
+        return std::make_shared<AggregateFunctionMinK<Data,DataTypeDateTime::FieldType, 5>>(argument_types[0]);
     else
         throw Exception("The first argument for aggregate function 'minK' should be number-type", ErrorCodes::BAD_ARGUMENTS);
 }
@@ -139,7 +140,8 @@ void registerAggregateFunctionMinK(AggregateFunctionFactory & factory)
 {
     AggregateFunctionProperties properties = { .returns_default_when_only_null = false, .is_order_dependent = true };
 
-    factory.registerFunction("minK", { createAggregateFunctionMinK, properties });
+    factory.registerFunction("minK", { createAggregateFunctionMinK<AggregateFunctionMinKData>, properties });
+    factory.registerFunction("minKPK", { createAggregateFunctionMinK<AggregateFunctionMinKPKData>, properties });
 }
 
 }
