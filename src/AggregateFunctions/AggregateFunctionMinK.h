@@ -41,21 +41,24 @@ struct AggregateFunctionMinKData
         if (value.size() == Tlimit_num_elem && value[Tlimit_num_elem - 1] < t)
             return;
 
-        if (value.size() < Tlimit_num_elem)
-        {
-            value.emplace_back(t);
-            std::sort(std::begin(value), std::end(value));
-            return;
-        }
+        for (size_t i = 0; i < value.size(); ++i)
+            if (t == value[i])
+                return;
 
-        for (size_t i = 0; i < Tlimit_num_elem; ++i)
-            if (t < value[i] && t != value[i - 1])
+        size_t i = 0;
+        for (; i < value.size(); ++i)
+        {
+            if (t < value[i])
             {
                 for (size_t k = i + 1; k < std::min(value.size(), Tlimit_num_elem); ++k)
                     value[k] = value[k - 1];
                 value[i] = t;
                 return;
             }
+        }
+
+        if (i < Tlimit_num_elem)
+            value.emplace_back(t);
     }
 
     void merge(const AggregateFunctionMinKData & other)
