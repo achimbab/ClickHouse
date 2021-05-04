@@ -30,6 +30,8 @@ struct AggregateFunctionMinKData
 
     List value;
 
+    static const char * name() { return "minK"; }
+
     void add(T t)
     {
         if (value.size() == 0)
@@ -50,8 +52,12 @@ struct AggregateFunctionMinKData
         {
             if (t < value[i])
             {
-                for (size_t k = i + 1; k < std::min(value.size(), Tlimit_num_elem); ++k)
-                    value[k] = value[k - 1];
+                size_t to = std::min(value.size() + 1, Tlimit_num_elem);
+                for (size_t k = to; k > 0; --k)
+                    if (value.size() <= k)
+                        value.emplace_back(value[k-1]);
+                    else
+                        value[k] = value[k - 1];
                 value[i] = t;
                 return;
             }
@@ -72,22 +78,63 @@ struct AggregateFunctionMinKData
 };
 
 
-/// Puts all values to the hash set. Returns an array of unique values. Implemented for numeric types.
 template <typename T, UInt64 Tlimit_num_elem>
+struct AggregateFunctionMinKPKData
+{
+    using List = PODArrayWithStackMemory<T, Tlimit_num_elem>;
+
+    List value;
+
+    static const char * name() { return "minKPK"; }
+
+    void add(T t)
+    {
+        if (value.size() != 0)
+            return;
+
+        value.emplace_back(t);
+    }
+
+    void merge(const AggregateFunctionMinKPKData & other)
+    {
+        if (other.value.empty())
+            return;
+
+        List tmp;
+        tmp.insert(std::begin(value), std::end(value));
+        tmp.insert(std::begin(other.value), std::end(other.value));
+        std::stable_sort(std::begin(tmp), std::end(tmp));
+
+        value.clear();
+        T tmp_v = 0;
+        for (size_t i = 0; i < std::min(Tlimit_num_elem, tmp.size()); ++i)
+        {
+            if (i != 0 && tmp_v == tmp[i])
+                continue;
+
+            tmp_v = tmp[i];
+            value.emplace_back(tmp_v);
+        }
+    }
+};
+
+
+/// Puts all values to the hash set. Returns an array of unique values. Implemented for numeric types.
+template <template <typename, UInt64> class Data, typename T, UInt64 Tlimit_num_elem>
 class AggregateFunctionMinK
-    : public IAggregateFunctionDataHelper<AggregateFunctionMinKData<T, Tlimit_num_elem>, AggregateFunctionMinK<T, Tlimit_num_elem>>
+    : public IAggregateFunctionDataHelper<Data<T, Tlimit_num_elem>, AggregateFunctionMinK<Data, T, Tlimit_num_elem>>
 {
     //static constexpr bool limit_num_elems = Tlimit_num_elem::value;
 
 private:
-    using State = AggregateFunctionMinKData<T, Tlimit_num_elem>;
+    using State = Data<T, Tlimit_num_elem>;
 
 public:
     AggregateFunctionMinK(const DataTypePtr & argument_type)
-        : IAggregateFunctionDataHelper<AggregateFunctionMinKData<T, Tlimit_num_elem>,
-          AggregateFunctionMinK<T, Tlimit_num_elem>>({argument_type}, {}) {}
+        : IAggregateFunctionDataHelper<Data<T, Tlimit_num_elem>,
+          AggregateFunctionMinK<Data, T, Tlimit_num_elem>>({argument_type}, {}) {}
 
-    String getName() const override { return "minK"; }
+    String getName() const override { return Data<T, Tlimit_num_elem>::name(); }
 
     DataTypePtr getReturnType() const override
     {
