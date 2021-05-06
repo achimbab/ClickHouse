@@ -142,6 +142,7 @@ void registerAggregateFunctionMinK(AggregateFunctionFactory & factory)
 
     factory.registerFunction("minK", { createAggregateFunctionMinK<AggregateFunctionMinKData>, properties });
     factory.registerFunction("minKPK", { createAggregateFunctionMinK<AggregateFunctionMinKPKData>, properties });
+    factory.registerFunction("minKH", { createAggregateFunctionMinK<AggregateFunctionMinKHData>, properties });
 }
 
 }

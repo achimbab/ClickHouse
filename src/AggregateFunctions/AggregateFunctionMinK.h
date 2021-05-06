@@ -75,6 +75,39 @@ struct AggregateFunctionMinKData
         for (size_t i = 0; i < other.value.size(); i++)
             add(other.value[i]);
     }
+
+    void insertResult(auto & data_to, ColumnArray::Offsets & offsets_to)
+    {
+        size_t size = value.size();
+
+        offsets_to.push_back(offsets_to.back() + size);
+
+        size_t old_size = data_to.size();
+        data_to.resize(old_size + size);
+
+        for (size_t i = 0; i < value.size(); ++i)
+            data_to[old_size + i] = value[i];
+    }
+
+    void serialize(WriteBuffer & buf) const
+    {
+        size_t size = value.size();
+        writeVarUInt(size, buf);
+        for (const auto & elem : value)
+            writeIntBinary(elem, buf);
+    }
+
+    void deserialize(ReadBuffer & buf)
+    {
+        size_t size;
+        readVarUInt(size, buf);
+        T t;
+        for (size_t i = 0; i < size; ++i)
+        {
+            readIntBinary(t, buf);
+            value.emplace_back(t);
+        }
+    }
 };
 
 
@@ -89,8 +122,12 @@ struct AggregateFunctionMinKPKData
 
     void add(T t)
     {
+        std::cout << "minKPK add: " << t << std::endl;
         if (value.size() != 0)
+        {
+            std::cout << "minKPK add(skip): " << t << std::endl;
             return;
+        }
 
         value.emplace_back(t);
     }
@@ -103,7 +140,7 @@ struct AggregateFunctionMinKPKData
         List tmp;
         tmp.insert(std::begin(value), std::end(value));
         tmp.insert(std::begin(other.value), std::end(other.value));
-        std::stable_sort(std::begin(tmp), std::end(tmp));
+        std::sort(std::begin(tmp), std::end(tmp));
 
         value.clear();
         T tmp_v = 0;
@@ -114,6 +151,114 @@ struct AggregateFunctionMinKPKData
 
             tmp_v = tmp[i];
             value.emplace_back(tmp_v);
+        }
+    }
+
+    void insertResult(auto & data_to, ColumnArray::Offsets & offsets_to)
+    {
+        size_t size = value.size();
+
+        offsets_to.push_back(offsets_to.back() + size);
+
+        size_t old_size = data_to.size();
+        data_to.resize(old_size + size);
+
+        for (size_t i = 0; i < value.size(); ++i)
+            data_to[old_size + i] = value[i];
+    }
+
+    void serialize(WriteBuffer & buf) const
+    {
+        size_t size = value.size();
+        writeVarUInt(size, buf);
+        for (const auto & elem : value)
+            writeIntBinary(elem, buf);
+    }
+
+    void deserialize(ReadBuffer & buf)
+    {
+        size_t size;
+        readVarUInt(size, buf);
+        T t;
+        for (size_t i = 0; i < size; ++i)
+        {
+            readIntBinary(t, buf);
+            value.emplace_back(t);
+        }
+    }
+};
+
+template <typename T, UInt64 Tlimit_num_elem>
+struct AggregateFunctionMinKHData
+{
+    using Set = std::set<T>;
+
+    Set value;
+
+    static const char * name() { return "minKH"; }
+
+    void add(T t)
+    {
+        if (value.size() < Tlimit_num_elem)
+            value.insert(t);
+        else
+        {
+            if (*value.rbegin() > t && value.find(t) == value.end())
+            {
+                std::cout << *value.rbegin() << ", " << t << std::endl;
+                value.erase(*value.rbegin());
+                value.insert(t);
+            }
+        }
+    }
+
+    void merge(const AggregateFunctionMinKHData & other)
+    {
+        if (other.value.empty())
+            return;
+
+        auto o = const_cast<AggregateFunctionMinKHData &>(other);
+
+        for (auto & elem : o.value)
+            add(elem);
+    }
+
+    void insertResult(auto & data_to, ColumnArray::Offsets & offsets_to)
+    {
+        size_t size = value.size();
+
+        offsets_to.push_back(offsets_to.back() + size);
+
+        size_t old_size = data_to.size();
+        data_to.resize(old_size + size);
+
+        size_t i = 0;
+        for (auto & elem : value)
+        {
+            add(elem);
+            data_to[old_size + i] = elem;
+            std::cout << elem << std::endl;
+            i++;
+        }
+    }
+
+    void serialize(WriteBuffer & buf) const
+    {
+        size_t size = value.size();
+        writeVarUInt(size, buf);
+        for (const auto & elem : value)
+            writeIntBinary(elem, buf);
+    }
+
+    void deserialize(ReadBuffer & buf)
+    {
+        size_t size;
+        readVarUInt(size, buf);
+        T t;
+        for (size_t i = 0; i < size; ++i)
+        {
+            readIntBinary(t, buf);
+            value.insert(t);
         }
     }
 };
@@ -155,15 +300,14 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, WriteBuffer & buf) const override
     {
-        auto & list = this->data(place).value;
-        size_t size = list.size();
-        writeVarUInt(size, buf);
-        for (const auto & elem : list)
-            writeIntBinary(elem, buf);
+        this->data(place).serialize(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, ReadBuffer & buf, Arena *) const override
     {
+        this->data(place).deserialize(buf);
+
+        /*
         size_t size;
         readVarUInt(size, buf);
 
@@ -174,6 +318,7 @@ public:
             readIntBinary(t, buf);
             list.emplace_back(t);
         }
+        */
     }
 
     void insertResultInto(AggregateDataPtr __restrict place, IColumn & to, Arena *) const override
@@ -181,17 +326,9 @@ public:
         ColumnArray & arr_to = assert_cast<ColumnArray &>(to);
         ColumnArray::Offsets & offsets_to = arr_to.getOffsets();
 
-        const typename State::List & list = this->data(place).value;
-        size_t size = list.size();
-
-        offsets_to.push_back(offsets_to.back() + size);
-
         typename ColumnVector<T>::Container & data_to = assert_cast<ColumnVector<T> &>(arr_to.getData()).getData();
-        size_t old_size = data_to.size();
-        data_to.resize(old_size + size);
 
-        for (size_t i = 0; i < list.size(); ++i)
-            data_to[old_size + i] = list[i];
+        this->data(place).insertResult(data_to, offsets_to);
     }
 };
 
