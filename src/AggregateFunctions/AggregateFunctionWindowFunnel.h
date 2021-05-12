@@ -2,7 +2,9 @@
 
 #include <unordered_set>
 #include <Columns/ColumnsNumber.h>
+#include <Columns/ColumnArray.h>
 #include <DataTypes/DataTypeDateTime.h>
+#include <DataTypes/DataTypeArray.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <IO/ReadHelpers.h>
 #include <IO/WriteHelpers.h>
@@ -212,6 +214,78 @@ private:
         return 0;
     }
 
+    std::vector<Int64> getEventLevelAndTimestamps(Data & data) const
+    {
+        if (data.size() == 0)
+            return {0};
+        if (!strict_order && events_size == 1)
+            return {1};
+
+        data.sort();
+
+        /// events_timestamp stores the timestamp that latest i-th level event happen within time window after previous level event.
+        /// timestamp defaults to -1, which unsigned timestamp value never meet
+        /// there may be some bugs when UInt64 type timstamp overflows Int64, but it works on most cases.
+        std::vector<Int64> events_timestamp(events_size, -1);
+        std::vector<Int64> result;
+        bool first_event = false;
+        for (const auto & pair : data.events_list)
+        {
+            const T & timestamp = pair.first;
+            const auto & event_idx = pair.second - 1;
+
+            if (result.size() <= static_cast<size_t>(event_idx))
+                result.emplace_back(timestamp);
+
+            if (strict_order && event_idx == -1)
+            {
+                if (first_event)
+                    break;
+                else
+                    continue;
+            }
+            else if (event_idx == 0)
+            {
+                events_timestamp[0] = timestamp;
+                first_event = true;
+            }
+            else if (strict && events_timestamp[event_idx] >= 0)
+            {
+                result.insert(result.begin(), event_idx + 1);
+                return result;
+            }
+            else if (strict_order && first_event && events_timestamp[event_idx - 1] == -1)
+            {
+                for (size_t event = 0; event < events_timestamp.size(); ++event)
+                {
+                    if (events_timestamp[event] == -1)
+                    {
+                        result.insert(result.begin(), event);
+                        return result;
+                    }
+                }
+            }
+            else if (events_timestamp[event_idx - 1] >= 0 && timestamp <= events_timestamp[event_idx - 1] + window)
+            {
+                events_timestamp[event_idx] = events_timestamp[event_idx - 1];
+                if (event_idx + 1 == events_size)
+                {
+                    result.insert(result.begin(), events_size);
+                    return result;
+                }
+            }
+        }
+        for (size_t event = events_timestamp.size(); event > 0; --event)
+        {
+            if (events_timestamp[event - 1] >= 0)
+            {
+                result.insert(result.begin(), event);
+                return result;
+            }
+        }
+        return {0};
+    }
+
 public:
     String getName() const override
     {
@@ -240,7 +314,7 @@ public:
 
     DataTypePtr getReturnType() const override
     {
-        return std::make_shared<DataTypeUInt8>();
+        return std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt64>());
     }
 
     AggregateFunctionPtr getOwnNullAdapter(
@@ -277,8 +351,7 @@ public:
     void serialize(ConstAggregateDataPtr place, WriteBuffer & buf) const override
     {
         this->data(place).serialize(buf);
-    }
-
+    } 
     void deserialize(AggregateDataPtr place, ReadBuffer & buf, Arena *) const override
     {
         this->data(place).deserialize(buf);
@@ -286,7 +359,19 @@ public:
 
     void insertResultInto(AggregateDataPtr place, IColumn & to, Arena *) const override
     {
-        assert_cast<ColumnUInt8 &>(to).getData().push_back(getEventLevel(this->data(place)));
+        //assert_cast<ColumnUInt8 &>(to).getData().push_back(getEventLevel(this->data(place)));
+
+        const auto & values = getEventLevelAndTimestamps(this->data(place));
+
+        auto & column_array = assert_cast<ColumnArray &>(to);
+
+        auto & offsets = column_array.getOffsets();
+        offsets.push_back(offsets.back() + values.size());
+
+        auto & column_data = column_array.getData();
+
+        for (auto & v : values)
+            column_data.insert(v);
     }
 };
 
