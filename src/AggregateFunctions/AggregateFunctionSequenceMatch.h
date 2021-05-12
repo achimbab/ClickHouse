@@ -187,7 +187,8 @@ private:
         TimeLessOrEqual,
         TimeLess,
         TimeGreaterOrEqual,
-        TimeGreater
+        TimeGreater,
+        RepeatGreaterOrEqual
     };
 
     struct PatternAction final
@@ -280,6 +281,26 @@ private:
                     actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
                     dfa_states.back().transition = DFATransition::SpecificEvent;
                     dfa_states.back().event = event_number - 1;
+
+                    if (match(">="))
+                    {
+                        PatternActionType type = PatternActionType::RepeatGreaterOrEqual;
+                        // TODO
+                        // else if (match(">"))
+                        //     type = PatternActionType::TimeGreater;
+
+                        if (type == PatternActionType::RepeatGreaterOrEqual)
+                        {
+                            UInt64 repeat_count = 0;
+                            auto prev_pos2 = pos;
+                            pos = tryReadIntText(repeat_count, pos, end);
+                            if (pos == prev_pos2)
+                                throw_exception("Could not parse number");
+
+                            dfa_states.back().repeat_count = repeat_count;
+                        }
+                    }
+
                     dfa_states.emplace_back();
                 }
 
@@ -322,6 +343,7 @@ protected:
         ActiveStates active_states(dfa_states.size(), false);
         ActiveStates next_active_states(dfa_states.size(), false);
         active_states[0] = true;
+        std::vector<UInt64> states_repeated_count(dfa_states.size(), 0);
 
         /// Keeps track of dead-ends in order not to iterate over all the events to realize that
         /// the match failed.
@@ -351,6 +373,7 @@ protected:
                         if (events_it->second.test(dfa_states[state].event))
                         {
                             next_active_states[state + 1] = true;
+                            states_repeated_count[state]++;
                             ++n_active;
                         }
                         break;
@@ -361,9 +384,19 @@ protected:
                     next_active_states[state] = true;
                     ++n_active;
                 }
+                else if (dfa_states[state].repeat_count > 0)
+                {
+                    next_active_states[state] = true;
+                    ++n_active;
+                }
             }
+
             swap(active_states, next_active_states);
         }
+
+        for (size_t state = 0; state < dfa_states.size(); ++state)
+            if (states_repeated_count[state] < dfa_states[state].repeat_count)
+                return false;
 
         return active_states.back();
     }
@@ -518,7 +551,7 @@ private:
     struct DFAState
     {
         DFAState(bool has_kleene_ = false)
-            : has_kleene{has_kleene_}, event{0}, transition{DFATransition::None}
+            : has_kleene{has_kleene_}, repeat_count{0}, event{0}, transition{DFATransition::None}
         {}
 
         ///   .-------.
@@ -526,6 +559,7 @@ private:
         ///   `-------'
         ///     |_^
         bool has_kleene;
+        UInt64 repeat_count;
         /// In the case of a state transitions with a `SpecificEvent`,
         /// `event` contains the value of the event.
         uint32_t event;
